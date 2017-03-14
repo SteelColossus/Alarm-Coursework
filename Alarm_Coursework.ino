@@ -13,7 +13,7 @@ uint8_t topline[8] = {0, 31, 0, 0, 0, 0, 0, 0};
 uint8_t upperbracket[8] = {16, 16, 8, 7, 0, 0, 0, 0};
 uint8_t sixstem[8] = {0, 3, 4, 8, 8, 8, 8, 8};
 
-enum class CustomChars : uint8_t { BACKSLASH = 0, BLTOTRDIAG, TRTOBLDIAG, TOPLINE, UPPERBRACKET, SIXSTEM };
+enum class CustomChars : uint8_t { BACKSLASH = 0, BLTOTRDIAG = 1, TRTOBLDIAG = 2, TOPLINE = 3, UPPERBRACKET = 4, SIXSTEM = 5 };
 
 uint8_t digits[][4] = { {'/', (uint8_t)CustomChars::BACKSLASH, (uint8_t)CustomChars::BACKSLASH, '/'},
                         {'/', '|', ' ', '|'},
@@ -53,87 +53,116 @@ uint8_t digits[][2] = { {(uint8_t)CustomChars::LEFTRIGHTTOPBORDER, (uint8_t)Cust
 
 uint8_t colon[2] = {165, 165};
 uint8_t space[2] = {' ', ' '};
-
-enum Characters { ZERO = 48, ONE = 49, TWO = 50, THREE = 51, FOUR = 52, FIVE = 53, SIX = 54, SEVEN = 55, EIGHT = 56, NINE = 57, COLON = 58, SPACE = 32 };
-                       
+ 
 int cursorX = 0;
 int cursorY = 0;
+
+String currentText = "";
 
 unsigned long currentTime = 0;
 unsigned long previousTime = 0;
 int waitTime = 1000;
 
+uint8_t buttons;
+
 class Time
 {
   private:
-    int hours;
-    int minutes;
-    int seconds;
+    unsigned int hours;
+    unsigned int minutes;
+    unsigned int seconds;
 
   public:
-    void setTime(int h, int m, int s)
+    enum Part { HOUR, MINUTE, SECOND };
+
+    Time()
     {
-      hours = h;
-      minutes = m;
-      seconds = s;
+      Time(0, 0, 0);
     }
   
-    void setTime(unsigned long t)
+    Time(unsigned int h, unsigned int m, unsigned int s)
     {
-      seconds = t % 60;
-      minutes = (t / 60) % 60;
-      hours = (t / (60*60)) % 24;
+      setTime(h, m, s);
     }
 
-    void addTime(int h, int m, int s)
+    unsigned int getTimePart(Part part)
     {
-      addTime(h*60*60 + m*60 + s);
+      switch (part)
+      {
+        case HOUR:
+          return hours;
+        case MINUTE:
+          return minutes;
+        case SECOND:
+          return seconds;
+      }
+    }
+  
+    void setTimePart(Part part, unsigned int v)
+    {
+      switch (part)
+      {
+        case HOUR:
+          hours = v % 24;
+          break;
+        case MINUTE:
+          minutes = v % 60;
+          break;
+        case SECOND:
+          seconds = v % 60;
+          break;
+      }
+    }
+  
+    void setTime(unsigned int h, unsigned int m, unsigned int s)
+    {
+      m += (s / 60);
+      h += (m / 60);
+
+      setTimePart(HOUR, h);
+      setTimePart(MINUTE, m);
+      setTimePart(SECOND, s);
+    }
+  
+    void setTime(unsigned long ms)
+    {
+      setTime(0, 0, (ms / 1000));
     }
 
-    void addTime(unsigned long t)
+    void addTimePart(Part part, unsigned int v)
     {
-      seconds += t;
-
-      if (seconds >= 60)
+      switch (part)
       {
-        minutes += seconds / 60;
-        seconds = seconds % 60;
+        case HOUR:
+          setTimePart(part, hours + v);
+          break;
+        case MINUTE:
+          setTimePart(part, minutes + v);
+          break;
+        case SECOND:
+          setTimePart(part, seconds + v);
+          break;
       }
+    }
 
-      if (minutes >= 60)
-      {
-        hours += (minutes / 60) % 24;
-        minutes = minutes % 60;
-      }
+    void addTime(unsigned int h, unsigned int m, unsigned int s)
+    {
+      setTime(hours + h, minutes + m, seconds + s);
+    }
 
-      if (hours >= 24) hours = hours % 24;
+    void addTime(unsigned long ms)
+    {
+      addTime(0, 0, (ms / 1000));
     }
 
     String getReadableShort()
     {
-      String res = "";
-
-      if (hours < 10) res += "0";
-      res += (String)hours;
-
-      res += ":";
-
-      if (minutes < 10) res += "0";
-      res += (String)minutes;
-
-      return res;
+      return ((hours < 10) ? "0" : "") + String(hours) + ":" + ((minutes < 10) ? "0" : "") + String(minutes);
     }
 
     String getReadable()
     {
-      String res = getReadableShort();
-            
-      res += ":";
-      
-      if (seconds < 10) res += "0";
-      res += (String)seconds;
-       
-      return res;
+      return getReadableShort() + ":" + ((seconds < 10) ? "0" : "") + String(seconds);
     }
 };
 
@@ -146,20 +175,29 @@ void setCursorPos(int x, int y)
   lcd.setCursor(cursorX, cursorY);
 }
 
+int getBigCharWidth(char c)
+{
+  if (c >= '0' && c <= '9')
+  {
+    return 2;
+  }
+  else
+  {
+    return 1;
+  }
+}
+
 void writeBigChar(uint8_t * c, int width=2)
 {
-  cursorY = 0;
+  setCursorPos(cursorX, 0);
   
   for (int i = 0; i < width*2; i++)
-  {
-    setCursorPos(cursorX, cursorY);
-    
+  {    
     lcd.write((char)c[i]);
     
     if (i == width - 1)
     {
-      cursorX -= (width - 1);
-      cursorY = 1;
+      setCursorPos(cursorX - (width - 1), 1);
     }
     else
     {
@@ -168,65 +206,78 @@ void writeBigChar(uint8_t * c, int width=2)
   }
 }
 
-void printCharacter(Characters c, int x=cursorX)
+void printChar(char c)
 {
-  setCursorPos(x, 0);
-  
-  switch (c)
+  if (c >= '0' && c <= '9')
   {
-    case ZERO:
-    case ONE:
-    case TWO:
-    case THREE:
-    case FOUR:
-    case FIVE:
-    case SIX:
-    case SEVEN:
-    case EIGHT:
-    case NINE:
-      writeBigChar(digits[(int)c - (int)ZERO]);
-      break;
-    case COLON:
-      writeBigChar(colon, 1);
-      break;
-    case SPACE:
-      writeBigChar(space, 1);
-      break;
+    writeBigChar(digits[(int)c - (int)'0']);
+  }
+  else if (c == ':')
+  {
+    writeBigChar(colon, 1);
+  }
+  else
+  {
+    writeBigChar(space, 1);
   }
 }
 
 void printToScreen(String str, int x=cursorX)
 {
-  setCursorPos(x, 0);
+  cursorX = x;
   
   for (int i = 0; i < str.length(); i++)
   {
-    char c = str.charAt(i);
-    Characters test = static_cast<Characters>(c);
-
-    printCharacter(test);
+    printChar(str.charAt(i));
   }
+}
+
+void updateScreen(String str, int x=cursorX)
+{
+  if (str.length() != currentText.length())
+  {
+    printToScreen(str, x);
+  }
+  else if (str != currentText)
+  {
+    cursorX = x;
+    
+    for (int i = 0; i < str.length(); i++)
+    {
+      char c = str.charAt(i);
+
+      if (c != currentText.charAt(i))
+      {
+        printChar(c);
+      }
+      else
+      {
+        cursorX += getBigCharWidth(c);
+      }
+    }
+  }
+
+  currentText = str;
 }
 
 int getCentrePos(String str)
 {
-  double centrePos = (screenWidth / 2);
+  int len = 0;
 
   for (int i = 0; i < str.length(); i++)
   {
     char c = str.charAt(i);
 
-    if (c >= '0' && c <= '9')
-    {
-      centrePos -= 1;
-    }
-    else if (c == COLON || c == SPACE)
-    {
-      centrePos -= 0.5;
-    }
+    len += getBigCharWidth(c);
   }
   
-  return centrePos;
+  return (screenWidth / 2) - ((float)len / 2);
+}
+
+void updateScreenTime()
+{
+  String output = screenTime.getReadable();
+  updateScreen(output, getCentrePos(output));
 }
 
 void setupCustomChars()
@@ -239,7 +290,6 @@ void setupCustomChars()
   lcd.createChar((int)CustomChars::SIXSTEM, sixstem);
 
   /* For the digital font
-   * 
   lcd.createChar((int)CustomChars::FULLBORDER, fullborder);
   lcd.createChar((int)CustomChars::LEFTRIGHTTOPBORDER, leftrighttopborder);
   lcd.createChar((int)CustomChars::LEFTRIGHTBOTTOMBORDER, leftrightbottomborder);
@@ -249,7 +299,6 @@ void setupCustomChars()
   lcd.createChar((int)CustomChars::RIGHTBORDER, rightborder);
   lcd.createChar((int)CustomChars::LEFTTOPBORDER, lefttopborder);
    */
-  
 }
 
 void setup() {
@@ -264,12 +313,12 @@ void setup() {
 
   Serial.print("Enter the number of hours: ");
 
-  h = (Serial.parseInt() % 60);
+  h = Serial.parseInt();
 
   Serial.println(h);
   Serial.print("Enter the number of minutes: ");
 
-  m = (Serial.parseInt() % 60);
+  m = Serial.parseInt();
   
   Serial.println(m);
 
@@ -282,27 +331,29 @@ void loop() {
 
   if (previousTime == 0 || currentTime - previousTime >= waitTime)
   {
-    if (previousTime > 0) screenTime.addTime(waitTime / 1000);
+    if (previousTime > 0) screenTime.addTime(waitTime);
 
     previousTime = currentTime;
 
-    String output = screenTime.getReadable();
+    updateScreenTime();
+  }
 
-    printToScreen(output, getCentrePos(output));
+  // Playing about, change later
+  buttons = lcd.readButtons();
 
-    // Playing about, change later
-    uint8_t buttons = lcd.readButtons();
- 
-    if (buttons)
+  if (buttons)
+  {
+    if (buttons & BUTTON_UP)
     {
-      if (buttons & BUTTON_UP)
-      {
-        screenTime.addTime(1, 0, 0);
-      }
-      if (buttons & BUTTON_RIGHT)
-      {
-        screenTime.addTime(0, 1, 0);
-      }
+      screenTime.addTimePart(Time::HOUR, 1);
+      updateScreenTime();
+    }
+    if (buttons & BUTTON_RIGHT)
+    {
+      screenTime.addTimePart(Time::MINUTE, 1);
+      updateScreenTime();
     }
   }
+  
+  //Serial.println(currentTime - previousTime);
 }
