@@ -1,70 +1,5 @@
 #include <Adafruit_RGBLCDShield.h>
 
-Adafruit_RGBLCDShield lcd;
-
-const int screenWidth = 16;
-const int screenHeight = 2;
-
-// Defining custom characters
-uint8_t backslash[8] = {0, 16, 8, 4, 2, 1, 0, 0};
-uint8_t bltotrdiag[8] = {0, 1, 2, 4, 8, 16, 15, 0};
-uint8_t trtobldiag[8] = {0, 30, 1, 2, 4, 8, 16, 0};
-uint8_t topline[8] = {0, 31, 0, 0, 0, 0, 0, 0};
-uint8_t upperbracket[8] = {16, 16, 8, 7, 0, 0, 0, 0};
-uint8_t sixstem[8] = {0, 3, 4, 8, 8, 8, 8, 8};
-
-enum class CustomChars : uint8_t { BACKSLASH = 0, BLTOTRDIAG = 1, TRTOBLDIAG = 2, TOPLINE = 3, UPPERBRACKET = 4, SIXSTEM = 5 };
-
-uint8_t digits[][4] = { {'/', (uint8_t)CustomChars::BACKSLASH, (uint8_t)CustomChars::BACKSLASH, '/'},
-                        {'/', '|', ' ', '|'},
-                        {'/', (uint8_t)CustomChars::TRTOBLDIAG, (uint8_t)CustomChars::BLTOTRDIAG, '_'},
-                        {(uint8_t)CustomChars::TOPLINE, (uint8_t)CustomChars::TRTOBLDIAG, 164, ')'},
-                        {'/', '|', (uint8_t)CustomChars::UPPERBRACKET, '+'},
-                        {(uint8_t)CustomChars::BLTOTRDIAG, (uint8_t)CustomChars::TOPLINE, 164, ')'},
-                        {(uint8_t)CustomChars::SIXSTEM, (uint8_t)CustomChars::TOPLINE, '(', ')'},
-                        {(uint8_t)CustomChars::TOPLINE, (uint8_t)CustomChars::TRTOBLDIAG, '/', ' '},
-                        {'(', ')', '(', ')'},
-                        {'(', ')', ' ', '|'}};
-
-/* This is a digital font
- * 
-uint8_t fullborder[8] = {31, 17, 17, 17, 17, 17, 17, 31};
-uint8_t leftrighttopborder[8] = {31, 17, 17, 17, 17, 17, 17, 17};
-uint8_t leftrightbottomborder[8] = {17, 17, 17, 17, 17, 17, 17, 31};
-uint8_t lefttopbottomborder[8] = {31, 16, 16, 16, 16, 16, 16, 31};
-uint8_t righttopbottomborder[8] = {31, 1, 1, 1, 1, 1, 1, 31};
-uint8_t righttopborder[8] = {31, 1, 1, 1, 1, 1, 1, 1};
-uint8_t rightborder[8] = {1, 1, 1, 1, 1, 1, 1, 1};
-uint8_t lefttopborder[8] = {31, 16, 16, 16, 16, 16, 16, 16};
-
-enum class CustomChars : uint8_t { FULLBORDER, LEFTRIGHTTOPBORDER, LEFTRIGHTBOTTOMBORDER, LEFTTOPBOTTOMBORDER, RIGHTTOPBOTTOMBORDER, RIGHTTOPBORDER, RIGHTBORDER, LEFTTOPBORDER };
-
-uint8_t digits[][2] = { {(uint8_t)CustomChars::LEFTRIGHTTOPBORDER, (uint8_t)CustomChars::LEFTRIGHTBOTTOMBORDER},
-                        {(uint8_t)CustomChars::RIGHTBORDER, (uint8_t)CustomChars::RIGHTBORDER},
-                        {(uint8_t)CustomChars::RIGHTTOPBORDER, (uint8_t)CustomChars::LEFTTOPBOTTOMBORDER},
-                        {(uint8_t)CustomChars::RIGHTTOPBORDER, (uint8_t)CustomChars::RIGHTTOPBOTTOMBORDER},
-                        {(uint8_t)CustomChars::LEFTRIGHTBOTTOMBORDER, (uint8_t)CustomChars::RIGHTBORDER},
-                        {(uint8_t)CustomChars::LEFTTOPBORDER, (uint8_t)CustomChars::RIGHTTOPBOTTOMBORDER},
-                        {(uint8_t)CustomChars::LEFTTOPBORDER, (uint8_t)CustomChars::FULLBORDER},
-                        {(uint8_t)CustomChars::RIGHTTOPBORDER, (uint8_t)CustomChars::RIGHTBORDER},
-                        {(uint8_t)CustomChars::LEFTRIGHTTOPBORDER, (uint8_t)CustomChars::FULLBORDER},
-                        {(uint8_t)CustomChars::LEFTRIGHTTOPBORDER, (uint8_t)CustomChars::RIGHTTOPBOTTOMBORDER}};
- */
-
-uint8_t colon[2] = {165, 165};
-uint8_t space[2] = {' ', ' '};
- 
-int cursorX = 0;
-int cursorY = 0;
-
-String currentText = "";
-
-unsigned long currentTime = 0;
-unsigned long previousTime = 0;
-int waitTime = 1000;
-
-uint8_t buttons;
-
 class Time
 {
   private:
@@ -145,6 +80,30 @@ class Time
       }
     }
 
+    void subtractTimePart(Part part, unsigned int v)
+    {
+      int newTime;
+      
+      switch (part)
+      {
+        case HOUR:
+          newTime = (int)hours - (v % 24);
+          if (newTime < 0) newTime += 24;
+          setTimePart(part, newTime);
+          break;
+        case MINUTE:
+          newTime = (int)minutes - (v % 60);
+          if (newTime < 0) newTime += 60;
+          setTimePart(part, newTime);
+          break;
+        case SECOND:
+          newTime = (int)seconds - (v % 60);
+          if (newTime < 0) newTime += 60;
+          setTimePart(part, newTime);
+          break;
+      }
+    }
+
     void addTime(unsigned int h, unsigned int m, unsigned int s)
     {
       setTime(hours + h, minutes + m, seconds + s);
@@ -166,7 +125,68 @@ class Time
     }
 };
 
+Adafruit_RGBLCDShield lcd;
+
+const int screenWidth = 16;
+const int screenHeight = 2;
+
+// Defining custom characters
+uint8_t backslash[8] = {0, 16, 8, 4, 2, 1, 0, 0};
+uint8_t bltotrdiag[8] = {0, 1, 2, 4, 8, 16, 15, 0};
+uint8_t trtobldiag[8] = {0, 30, 1, 2, 4, 8, 16, 0};
+uint8_t topline[8] = {0, 31, 0, 0, 0, 0, 0, 0};
+uint8_t upperbracket[8] = {16, 16, 8, 7, 0, 0, 0, 0};
+uint8_t sixstem[8] = {0, 3, 4, 8, 8, 8, 8, 8};
+
+enum class CustomChars : uint8_t { BACKSLASH = 0, BLTOTRDIAG = 1, TRTOBLDIAG = 2, TOPLINE = 3, UPPERBRACKET = 4, SIXSTEM = 5 };
+
+uint8_t digits[][4] = { {'/', (uint8_t)CustomChars::BACKSLASH, (uint8_t)CustomChars::BACKSLASH, '/'},
+                        {'/', '|', ' ', '|'},
+                        {'/', (uint8_t)CustomChars::TRTOBLDIAG, (uint8_t)CustomChars::BLTOTRDIAG, '_'},
+                        {(uint8_t)CustomChars::TOPLINE, (uint8_t)CustomChars::TRTOBLDIAG, 164, ')'},
+                        {'/', '|', (uint8_t)CustomChars::UPPERBRACKET, '+'},
+                        {(uint8_t)CustomChars::BLTOTRDIAG, (uint8_t)CustomChars::TOPLINE, 164, ')'},
+                        {(uint8_t)CustomChars::SIXSTEM, (uint8_t)CustomChars::TOPLINE, '(', ')'},
+                        {(uint8_t)CustomChars::TOPLINE, (uint8_t)CustomChars::TRTOBLDIAG, '/', ' '},
+                        {'(', ')', '(', ')'},
+                        {'(', ')', ' ', '|'}};
+
+uint8_t colon[2] = {165, 165};
+uint8_t space[2] = {' ', ' '};
+ 
+int cursorX = 0;
+int cursorY = 0;
+
+String currentText = "";
+
 Time screenTime;
+
+unsigned long currentTime = 0;
+unsigned long previousClockTime = 0;
+unsigned long previousBlinkTime = 0;
+unsigned int clockTimer = 0;
+unsigned int blinkTimer = 0;
+unsigned int lostClockTime = 0;
+
+const unsigned int clockWaitTime = 1000;
+const unsigned int blinkTime = 500;
+const unsigned int shortPressTime = 400;
+const unsigned int shortHoldTime = 200;
+const unsigned int longHoldTime = 1500;
+
+enum class Mode { CLOCK, CLOCKSET, ALARMSET };
+
+Mode currentMode;
+unsigned long timeChangedMode = 0;
+Time::Part selectedEditPart;
+bool blinking = false;
+
+uint8_t buttons;
+unsigned long upButtonStartTimePressed = 0;
+unsigned long downButtonStartTimePressed = 0;
+unsigned long leftButtonStartTimePressed = 0;
+unsigned long rightButtonStartTimePressed = 0;
+unsigned long selectButtonStartTimePressed = 0;
 
 void setCursorPos(int x, int y)
 {
@@ -230,37 +250,57 @@ void printToScreen(String str, int x=cursorX)
   {
     printChar(str.charAt(i));
   }
+  
+  currentText = str;
 }
 
 void updateScreen(String str, int x=cursorX)
-{
-  if (str.length() != currentText.length())
+{  
+  if (getWidthOnScreen(str) != getWidthOnScreen(currentText))
   {
     printToScreen(str, x);
   }
   else if (str != currentText)
-  {
+  {    
     cursorX = x;
-    
-    for (int i = 0; i < str.length(); i++)
-    {
-      char c = str.charAt(i);
 
-      if (c != currentText.charAt(i))
+    int i = 0;
+    int j = 0;
+    int overlap = 0;
+    
+    while (i < str.length())
+    {
+      char c1 = str.charAt(i);
+      char c2 = currentText.charAt(j);
+
+      int c1w = getBigCharWidth(c1);
+      int c2w = getBigCharWidth(c2);
+      
+      if (c1 != c2)
       {
-        printChar(c);
+        printChar(c1);
       }
       else
-      {
-        cursorX += getBigCharWidth(c);
+      {        
+        cursorX += c1w;
       }
+
+      if (c2w > c1w)
+      {
+        i += 1;
+        printChar(str.charAt(i));
+      }
+
+      i += 1;
+      j += (c1w > c2w ? (c1w - c2w) + 1 : 1);
     }
   }
-
+  
+  Serial.println("");
   currentText = str;
 }
 
-int getCentrePos(String str)
+int getWidthOnScreen(String str)
 {
   int len = 0;
 
@@ -270,14 +310,55 @@ int getCentrePos(String str)
 
     len += getBigCharWidth(c);
   }
-  
-  return (screenWidth / 2) - ((float)len / 2);
+
+  return len;
+}
+
+int getCentrePos(String str)
+{  
+  return (screenWidth / 2) - ((float)getWidthOnScreen(str) / 2);
 }
 
 void updateScreenTime()
 {
   String output = screenTime.getReadable();
+  
+  if (currentMode == Mode::CLOCKSET)
+  {
+    if (blinkTimer >= blinkTime) blinking = !blinking;
+    
+    if (blinking)
+    {
+      int sp = (int)selectedEditPart;
+      output = output.substring(0, sp*3) + "    " + output.substring(sp*3 + 2);
+    }
+  }
+  
   updateScreen(output, getCentrePos(output));
+}
+
+void resetBlink(bool b=true)
+{
+    blinkTimer = 0;
+    blinking = b;
+    updateScreenTime();
+    previousBlinkTime = millis();
+}
+
+void updateMode(Mode mode)
+{
+  currentMode = mode;
+  timeChangedMode = currentTime;
+  
+  switch (mode)
+  {
+    case Mode::CLOCK:
+      updateScreenTime();
+      break;
+    case Mode::CLOCKSET:
+      resetBlink();
+      break;
+  }
 }
 
 void setupCustomChars()
@@ -288,72 +369,165 @@ void setupCustomChars()
   lcd.createChar((int)CustomChars::TOPLINE, topline);
   lcd.createChar((int)CustomChars::UPPERBRACKET, upperbracket);
   lcd.createChar((int)CustomChars::SIXSTEM, sixstem);
-
-  /* For the digital font
-  lcd.createChar((int)CustomChars::FULLBORDER, fullborder);
-  lcd.createChar((int)CustomChars::LEFTRIGHTTOPBORDER, leftrighttopborder);
-  lcd.createChar((int)CustomChars::LEFTRIGHTBOTTOMBORDER, leftrightbottomborder);
-  lcd.createChar((int)CustomChars::LEFTTOPBOTTOMBORDER, lefttopbottomborder);
-  lcd.createChar((int)CustomChars::RIGHTTOPBOTTOMBORDER, righttopbottomborder);
-  lcd.createChar((int)CustomChars::RIGHTTOPBORDER, righttopborder);
-  lcd.createChar((int)CustomChars::RIGHTBORDER, rightborder);
-  lcd.createChar((int)CustomChars::LEFTTOPBORDER, lefttopborder);
-   */
 }
 
 void setup() {
-  // put your setup code here, to run once:
   Serial.begin(9600);
   lcd.begin(screenWidth, screenHeight);
   setupCustomChars();
 
-  Serial.setTimeout(2000);
-  
+  currentMode = Mode::CLOCK;
+  selectedEditPart = Time::HOUR;
+
   int h = 0; int m = 0;
 
-  Serial.print("Enter the number of hours: ");
-
-  h = Serial.parseInt();
-
-  Serial.println(h);
-  Serial.print("Enter the number of minutes: ");
-
-  m = Serial.parseInt();
-  
-  Serial.println(m);
-
   screenTime.setTime(h, m, 0);
+
+  updateScreenTime();
+
+  currentTime = millis();
+  previousClockTime = currentTime;
 }
 
 void loop() {  
-  // put your main code here, to run repeatedly:
   currentTime = millis();
+  clockTimer = currentTime - previousClockTime + lostClockTime;
 
-  if (previousTime == 0 || currentTime - previousTime >= waitTime)
+  if (currentMode == Mode::CLOCKSET) blinkTimer = currentTime - previousBlinkTime;
+
+  if (clockTimer >= clockWaitTime)
   {
-    if (previousTime > 0) screenTime.addTime(waitTime);
-
-    previousTime = currentTime;
+    previousClockTime = currentTime;
+    screenTime.addTime(1000);
 
     updateScreenTime();
+
+    clockTimer -= clockWaitTime;
+    lostClockTime = clockTimer;
   }
 
-  // Playing about, change later
+  if (blinkTimer >= blinkTime && currentMode == Mode::CLOCKSET)
+  {
+    previousBlinkTime = currentTime;
+    
+    if (clockTimer > lostClockTime) updateScreenTime();
+    
+    blinkTimer = 0;
+  }
+
   buttons = lcd.readButtons();
 
-  if (buttons)
+  if (buttons & BUTTON_UP)
   {
-    if (buttons & BUTTON_UP)
+    if ((currentTime - upButtonStartTimePressed) >= shortPressTime && currentMode == Mode::CLOCKSET)
     {
-      screenTime.addTimePart(Time::HOUR, 1);
-      updateScreenTime();
-    }
-    if (buttons & BUTTON_RIGHT)
-    {
-      screenTime.addTimePart(Time::MINUTE, 1);
-      updateScreenTime();
+      if (selectedEditPart == Time::SECOND)
+      {
+        screenTime.setTimePart(Time::SECOND, 0);
+      }
+      else
+      {
+        screenTime.addTimePart(selectedEditPart, 1);
+      }
+      
+      resetBlink(false);
+
+      upButtonStartTimePressed = currentTime;
     }
   }
+  else
+  {
+    upButtonStartTimePressed = currentTime;
+  }
   
-  //Serial.println(currentTime - previousTime);
+  if (buttons & BUTTON_DOWN)
+  {
+    if ((currentTime - downButtonStartTimePressed) >= shortPressTime && currentMode == Mode::CLOCKSET)
+    {
+      if (selectedEditPart == Time::SECOND)
+      {
+        screenTime.setTimePart(Time::SECOND, 0);
+      }
+      else
+      {
+        screenTime.subtractTimePart(selectedEditPart, 1);
+      }
+      
+      resetBlink(false);
+      
+      downButtonStartTimePressed = currentTime;
+    }
+  }
+  else
+  {
+    downButtonStartTimePressed = currentTime;
+  }
+  
+  if (buttons & BUTTON_LEFT)
+  {
+    if ((currentTime - leftButtonStartTimePressed) >= shortPressTime && currentMode == Mode::CLOCKSET)
+    {
+      switch (selectedEditPart)
+      {
+        case Time::MINUTE:
+          selectedEditPart = Time::HOUR;
+          resetBlink();
+          break;
+        case Time::SECOND:
+          selectedEditPart = Time::MINUTE;
+          resetBlink();
+          break;
+      }
+
+      leftButtonStartTimePressed = currentTime;
+    }
+  }
+  else
+  {
+    leftButtonStartTimePressed = currentTime;
+  }
+  
+  if (buttons & BUTTON_RIGHT)
+  {
+    if ((currentTime - rightButtonStartTimePressed) >= shortPressTime && currentMode == Mode::CLOCKSET)
+    {
+      switch (selectedEditPart)
+      {
+        case Time::HOUR:
+          selectedEditPart = Time::MINUTE;
+          resetBlink();
+          break;
+        case Time::MINUTE:
+          selectedEditPart = Time::SECOND;
+          resetBlink();
+          break;
+      }
+      
+      rightButtonStartTimePressed = currentTime;
+    }
+  }
+  else
+  {
+    rightButtonStartTimePressed = currentTime;
+  }
+  
+  if (buttons & BUTTON_SELECT)
+  {
+    if ((currentTime - selectButtonStartTimePressed) >= longHoldTime && selectButtonStartTimePressed >= timeChangedMode)
+    {
+      switch (currentMode)
+      {
+        case Mode::CLOCK:
+          updateMode(Mode::CLOCKSET);
+          break;
+        case Mode::CLOCKSET:
+          updateMode(Mode::CLOCK);
+          break;
+      }
+    }
+  }
+  else
+  {
+    selectButtonStartTimePressed = currentTime;
+  }
 }
