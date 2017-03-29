@@ -1,4 +1,5 @@
 #include <Adafruit_RGBLCDShield.h>
+#include <EEPROM.h>
 
 class Time
 {
@@ -123,6 +124,21 @@ class Time
     {
       return getReadableShort() + ":" + ((seconds < 10) ? "0" : "") + String(seconds);
     }
+
+    bool areApproxEqual(const Time& other)
+    {
+      return hours == other.hours && minutes == other.minutes;
+    }
+
+    bool areEqual(const Time& other)
+    {
+      return areApproxEqual(other) && seconds == other.seconds;
+    }
+
+    bool operator== (const Time& other)
+    {
+      return areEqual(other);
+    }
 };
 
 Adafruit_RGBLCDShield lcd;
@@ -160,16 +176,24 @@ int cursorY = 0;
 String currentText = "";
 
 Time screenTime;
+Time alarmTime;
 
 unsigned long currentTime = 0;
 unsigned long previousClockTime = 0;
 unsigned long previousBlinkTime = 0;
+unsigned int previousAlarmBlinkTime = 0;
 unsigned int clockTimer = 0;
 unsigned int blinkTimer = 0;
+unsigned int alarmBlinkTimer = 0;
 unsigned int lostClockTime = 0;
+
+bool alarmActive = false;
+const int defaultBacklightColor = 0x7;
+unsigned int backlightColor;
 
 const unsigned int clockWaitTime = 1000;
 const unsigned int blinkTime = 500;
+const unsigned int alarmBlinkTime = 500;
 const unsigned int shortPressTime = 400;
 const unsigned int shortHoldTime = 200;
 const unsigned int longHoldTime = 1500;
@@ -296,7 +320,6 @@ void updateScreen(String str, int x=cursorX)
     }
   }
   
-  Serial.println("");
   currentText = str;
 }
 
@@ -347,18 +370,29 @@ void resetBlink(bool b=true)
 
 void updateMode(Mode mode)
 {
+  Mode previousMode = currentMode;
   currentMode = mode;
-  timeChangedMode = currentTime;
   
   switch (mode)
   {
     case Mode::CLOCK:
       updateScreenTime();
+      if (previousMode == Mode::CLOCKSET) updateEEPROMClock();
       break;
     case Mode::CLOCKSET:
       resetBlink();
       break;
   }
+  
+  timeChangedMode = currentTime;
+}
+
+void updateEEPROMClock()
+{
+  EEPROM.write(0, screenTime.getTimePart(Time::HOUR));
+  EEPROM.write(1, screenTime.getTimePart(Time::MINUTE));
+  
+  //Serial.println("EEPROM values " + String(EEPROM.read(0)) + " and " + String(EEPROM.read(1)) + " written.");
 }
 
 void setupCustomChars()
@@ -376,12 +410,23 @@ void setup() {
   lcd.begin(screenWidth, screenHeight);
   setupCustomChars();
 
+  backlightColor = defaultBacklightColor;
+  lcd.setBacklight(backlightColor);
+
   currentMode = Mode::CLOCK;
   selectedEditPart = Time::HOUR;
 
-  int h = 0; int m = 0;
+  int h = EEPROM.read(0);
+  int m = EEPROM.read(1);
 
   screenTime.setTime(h, m, 0);
+
+  int ah = EEPROM.read(2);
+  int am = EEPROM.read(3);
+
+  alarmTime.setTime(ah, am, 0);
+  
+  Serial.println("Alarm time: " + alarmTime.getReadableShort());
 
   updateScreenTime();
 
@@ -395,10 +440,21 @@ void loop() {
 
   if (currentMode == Mode::CLOCKSET) blinkTimer = currentTime - previousBlinkTime;
 
+  if (alarmActive) alarmBlinkTimer = currentTime - previousAlarmBlinkTime;
+
   if (clockTimer >= clockWaitTime)
   {
+    int prevMins = screenTime.getTimePart(Time::MINUTE);
     previousClockTime = currentTime;
     screenTime.addTime(1000);
+
+    if (screenTime.getTimePart(Time::MINUTE) != prevMins) updateEEPROMClock();
+
+    if (screenTime == alarmTime)
+    {
+      Serial.println("Alarm started!");
+      alarmActive = true;
+    }
 
     updateScreenTime();
 
@@ -413,6 +469,22 @@ void loop() {
     if (clockTimer > lostClockTime) updateScreenTime();
     
     blinkTimer = 0;
+  }
+
+  if (alarmBlinkTimer >= alarmBlinkTime && alarmActive)
+  {
+    previousAlarmBlinkTime = currentTime;
+    
+    if (backlightColor == defaultBacklightColor)
+    {
+      backlightColor = 0x4;
+    }
+    else
+    {
+      backlightColor = defaultBacklightColor;
+    }
+
+    lcd.setBacklight(backlightColor);
   }
 
   buttons = lcd.readButtons();
@@ -515,6 +587,18 @@ void loop() {
   {
     if ((currentTime - selectButtonStartTimePressed) >= longHoldTime && selectButtonStartTimePressed >= timeChangedMode)
     {
+      if (alarmActive)
+      {
+        alarmActive = false;
+        Serial.println("Alarm stopped!");
+        
+        if (backlightColor != defaultBacklightColor)
+        {
+          backlightColor = defaultBacklightColor;
+          lcd.setBacklight(backlightColor);
+        }
+      }
+      
       switch (currentMode)
       {
         case Mode::CLOCK:
