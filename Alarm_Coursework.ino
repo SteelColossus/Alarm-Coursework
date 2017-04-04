@@ -62,7 +62,11 @@ class Time
   
     void setTime(unsigned long ms)
     {
-      setTime(0, 0, (ms / 1000));
+      unsigned int h = (ms / 1000) / 3600;
+      unsigned int m = ((ms / 1000) / 60) % 60;
+      unsigned int s = (ms / 1000) % 60; 
+      
+      setTime(h, m, s);
     }
 
     void addTimePart(Part part, unsigned int v)
@@ -112,7 +116,12 @@ class Time
 
     void addTime(unsigned long ms)
     {
-      addTime(0, 0, (ms / 1000));
+      setTime(getTotalMillis() + ms);
+    }
+
+    unsigned long getTotalMillis()
+    {
+      return (((unsigned long)hours * 3600) + (minutes * 60) + seconds) * 1000;
     }
 
     String getReadableShort()
@@ -179,21 +188,23 @@ Time screenTime;
 Time alarmTime;
 
 unsigned long currentTime = 0;
-unsigned long previousClockTime = 0;
+unsigned long clockTimer = 0;
 unsigned long previousBlinkTime = 0;
-unsigned int previousAlarmBlinkTime = 0;
-unsigned int clockTimer = 0;
+unsigned long previousAlarmFlashTime = 0;
 unsigned int blinkTimer = 0;
-unsigned int alarmBlinkTimer = 0;
-unsigned int lostClockTime = 0;
+unsigned int alarmFlashTimer = 0;
+
+long clockOffset = 0;
+unsigned long currentScreenTime = 0;
+unsigned long clockResetTime = 0; 
 
 bool alarmActive = false;
 const int defaultBacklightColor = 0x7;
-unsigned int backlightColor;
+int backlightColor;
 
 const unsigned int clockWaitTime = 1000;
 const unsigned int blinkTime = 500;
-const unsigned int alarmBlinkTime = 500;
+const unsigned int alarmFlashTime = 500;
 const unsigned int shortPressTime = 400;
 const unsigned int shortHoldTime = 200;
 const unsigned int longHoldTime = 1500;
@@ -206,11 +217,74 @@ Time::Part selectedEditPart;
 bool blinking = false;
 
 uint8_t buttons;
+
+/*
 unsigned long upButtonStartTimePressed = 0;
 unsigned long downButtonStartTimePressed = 0;
 unsigned long leftButtonStartTimePressed = 0;
 unsigned long rightButtonStartTimePressed = 0;
 unsigned long selectButtonStartTimePressed = 0;
+*/
+
+class ButtonHandler
+{
+  private:
+    byte buttonByte;
+    unsigned long lastTimeHeld;
+    bool currentButtonState;
+    unsigned long lastTimePressed;
+    int timesPressedWhileHeld;
+
+  public:
+    ButtonHandler(byte b) : buttonByte(b) { }
+
+    bool isHeldDown()
+    {
+      return buttons & buttonByte;
+    }
+
+    unsigned long getTimeHeld()
+    {
+      return (!isHeldDown() ? 0 : currentTime - lastTimeHeld);
+    }
+
+    unsigned long getTimeSincePress()
+    {
+      return (!isHeldDown() ? 0 : currentTime - lastTimePressed);
+    }
+
+    int getTimesPressedWhileHeld()
+    {
+      return timesPressedWhileHeld;
+    }
+
+    void updateButtonState()
+    {
+      if (isHeldDown() && !currentButtonState)
+      {
+        currentButtonState = true;
+        lastTimeHeld = currentTime;
+        lastTimePressed = currentTime;
+      }
+      else if (!isHeldDown() && currentButtonState)
+      {
+        currentButtonState = false;
+        timesPressedWhileHeld = 0;
+      }
+    }
+
+    void registerPress()
+    {
+      lastTimePressed = currentTime;
+      timesPressedWhileHeld++;
+    }
+};
+
+ButtonHandler upButtonHandler (BUTTON_UP);
+ButtonHandler downButtonHandler (BUTTON_DOWN);
+ButtonHandler leftButtonHandler (BUTTON_LEFT);
+ButtonHandler rightButtonHandler (BUTTON_RIGHT);
+ButtonHandler selectButtonHandler (BUTTON_SELECT);
 
 void setCursorPos(int x, int y)
 {
@@ -391,8 +465,6 @@ void updateEEPROMClock()
 {
   EEPROM.write(0, screenTime.getTimePart(Time::HOUR));
   EEPROM.write(1, screenTime.getTimePart(Time::MINUTE));
-  
-  //Serial.println("EEPROM values " + String(EEPROM.read(0)) + " and " + String(EEPROM.read(1)) + " written.");
 }
 
 void setupCustomChars()
@@ -431,24 +503,37 @@ void setup() {
   updateScreenTime();
 
   currentTime = millis();
-  previousClockTime = currentTime;
+  clockResetTime = currentTime;
+  clockOffset = screenTime.getTotalMillis() - clockResetTime;
 }
 
 void loop() {  
   currentTime = millis();
-  clockTimer = currentTime - previousClockTime + lostClockTime;
+  currentScreenTime = currentTime + clockOffset;
+  clockTimer = currentScreenTime - screenTime.getTotalMillis();
 
   if (currentMode == Mode::CLOCKSET) blinkTimer = currentTime - previousBlinkTime;
 
-  if (alarmActive) alarmBlinkTimer = currentTime - previousAlarmBlinkTime;
+  if (alarmActive) alarmFlashTimer = currentTime - previousAlarmFlashTime;
 
-  if (clockTimer >= clockWaitTime)
+  if (clockTimer >= 1000)
   {
     int prevMins = screenTime.getTimePart(Time::MINUTE);
-    previousClockTime = currentTime;
-    screenTime.addTime(1000);
+    
+    if (currentScreenTime >= 86400000)
+    {
+      screenTime.setTime(0);
+      
+      clockResetTime = currentTime;
+      clockOffset = screenTime.getTotalMillis() - clockResetTime;
+      currentScreenTime = currentTime + clockOffset;
+    }
+    else
+    {
+      screenTime.setTime(currentScreenTime);
+    }
 
-    if (screenTime.getTimePart(Time::MINUTE) != prevMins) updateEEPROMClock();
+    if (screenTime.getTimePart(Time::MINUTE) != prevMins && currentMode != Mode::CLOCKSET) updateEEPROMClock();
 
     if (screenTime == alarmTime)
     {
@@ -457,23 +542,20 @@ void loop() {
     }
 
     updateScreenTime();
-
-    clockTimer -= clockWaitTime;
-    lostClockTime = clockTimer;
   }
 
   if (blinkTimer >= blinkTime && currentMode == Mode::CLOCKSET)
   {
     previousBlinkTime = currentTime;
     
-    if (clockTimer > lostClockTime) updateScreenTime();
+    if (clockTimer < 1000) updateScreenTime();
     
     blinkTimer = 0;
   }
 
-  if (alarmBlinkTimer >= alarmBlinkTime && alarmActive)
+  if (alarmFlashTimer >= alarmFlashTime && alarmActive)
   {
-    previousAlarmBlinkTime = currentTime;
+    previousAlarmFlashTime = currentTime;
     
     if (backlightColor == defaultBacklightColor)
     {
@@ -488,130 +570,142 @@ void loop() {
   }
 
   buttons = lcd.readButtons();
+  upButtonHandler.updateButtonState();
+  downButtonHandler.updateButtonState();
+  leftButtonHandler.updateButtonState();
+  rightButtonHandler.updateButtonState();
+  selectButtonHandler.updateButtonState();
 
-  if (buttons & BUTTON_UP)
+  if (buttons)
   {
-    if ((currentTime - upButtonStartTimePressed) >= shortPressTime && currentMode == Mode::CLOCKSET)
+    if (upButtonHandler.isHeldDown())
     {
-      if (selectedEditPart == Time::SECOND)
+      if (currentMode == Mode::CLOCKSET)
       {
-        screenTime.setTimePart(Time::SECOND, 0);
-      }
-      else
-      {
-        screenTime.addTimePart(selectedEditPart, 1);
-      }
-      
-      resetBlink(false);
-
-      upButtonStartTimePressed = currentTime;
-    }
-  }
-  else
-  {
-    upButtonStartTimePressed = currentTime;
-  }
-  
-  if (buttons & BUTTON_DOWN)
-  {
-    if ((currentTime - downButtonStartTimePressed) >= shortPressTime && currentMode == Mode::CLOCKSET)
-    {
-      if (selectedEditPart == Time::SECOND)
-      {
-        screenTime.setTimePart(Time::SECOND, 0);
-      }
-      else
-      {
-        screenTime.subtractTimePart(selectedEditPart, 1);
-      }
-      
-      resetBlink(false);
-      
-      downButtonStartTimePressed = currentTime;
-    }
-  }
-  else
-  {
-    downButtonStartTimePressed = currentTime;
-  }
-  
-  if (buttons & BUTTON_LEFT)
-  {
-    if ((currentTime - leftButtonStartTimePressed) >= shortPressTime && currentMode == Mode::CLOCKSET)
-    {
-      switch (selectedEditPart)
-      {
-        case Time::MINUTE:
-          selectedEditPart = Time::HOUR;
-          resetBlink();
-          break;
-        case Time::SECOND:
-          selectedEditPart = Time::MINUTE;
-          resetBlink();
-          break;
-      }
-
-      leftButtonStartTimePressed = currentTime;
-    }
-  }
-  else
-  {
-    leftButtonStartTimePressed = currentTime;
-  }
-  
-  if (buttons & BUTTON_RIGHT)
-  {
-    if ((currentTime - rightButtonStartTimePressed) >= shortPressTime && currentMode == Mode::CLOCKSET)
-    {
-      switch (selectedEditPart)
-      {
-        case Time::HOUR:
-          selectedEditPart = Time::MINUTE;
-          resetBlink();
-          break;
-        case Time::MINUTE:
-          selectedEditPart = Time::SECOND;
-          resetBlink();
-          break;
-      }
-      
-      rightButtonStartTimePressed = currentTime;
-    }
-  }
-  else
-  {
-    rightButtonStartTimePressed = currentTime;
-  }
-  
-  if (buttons & BUTTON_SELECT)
-  {
-    if ((currentTime - selectButtonStartTimePressed) >= longHoldTime && selectButtonStartTimePressed >= timeChangedMode)
-    {
-      if (alarmActive)
-      {
-        alarmActive = false;
-        Serial.println("Alarm stopped!");
-        
-        if (backlightColor != defaultBacklightColor)
+        if (upButtonHandler.getTimeSincePress() >= shortPressTime)
         {
-          backlightColor = defaultBacklightColor;
-          lcd.setBacklight(backlightColor);
+          upButtonHandler.registerPress();
+          
+          unsigned long previousTime = screenTime.getTotalMillis();
+          
+          if (selectedEditPart == Time::SECOND)
+          {
+            screenTime.setTimePart(Time::SECOND, 0);
+          }
+          else
+          {
+            screenTime.addTimePart(selectedEditPart, 1);
+          }
+          
+          clockOffset += (screenTime.getTotalMillis() - previousTime);
+          
+          resetBlink(false);
         }
       }
-      
-      switch (currentMode)
+    }
+    
+    if (downButtonHandler.isHeldDown())
+    {
+      if (currentMode == Mode::CLOCKSET)
       {
-        case Mode::CLOCK:
-          updateMode(Mode::CLOCKSET);
-          break;
-        case Mode::CLOCKSET:
-          updateMode(Mode::CLOCK);
-          break;
+        if (downButtonHandler.getTimeSincePress() >= shortPressTime)
+        {
+          downButtonHandler.registerPress();
+          
+          unsigned long previousTime = screenTime.getTotalMillis();
+          
+          if (selectedEditPart == Time::SECOND)
+          {
+            screenTime.setTimePart(Time::SECOND, 0);
+          }
+          else
+          {
+            screenTime.subtractTimePart(selectedEditPart, 1);
+          }
+          
+          clockOffset += (screenTime.getTotalMillis() - previousTime);
+          
+          resetBlink(false);
+        }
+      }
+    }
+    
+    if (leftButtonHandler.isHeldDown())
+    {
+      if (currentMode == Mode::CLOCKSET)
+      {
+        if (leftButtonHandler.getTimeSincePress() >= shortPressTime)
+        {
+          leftButtonHandler.registerPress();
+          
+          switch (selectedEditPart)
+          {
+            case Time::MINUTE:
+              selectedEditPart = Time::HOUR;
+              resetBlink();
+              break;
+            case Time::SECOND:
+              selectedEditPart = Time::MINUTE;
+              resetBlink();
+              break;
+          }
+        }
+      }
+    }
+    
+    if (rightButtonHandler.isHeldDown())
+    {
+      if (currentMode == Mode::CLOCKSET)
+      {
+        if (rightButtonHandler.getTimeSincePress() >= shortPressTime)
+        {
+          rightButtonHandler.registerPress();
+          
+          switch (selectedEditPart)
+          {
+            case Time::HOUR:
+              selectedEditPart = Time::MINUTE;
+              resetBlink();
+              break;
+            case Time::MINUTE:
+              selectedEditPart = Time::SECOND;
+              resetBlink();
+              break;
+          }
+        }
+      }
+    }
+    
+    if (selectButtonHandler.isHeldDown())
+    {
+      if (selectButtonHandler.getTimeHeld() >= longHoldTime && selectButtonHandler.getTimesPressedWhileHeld() == 0)
+      {
+        selectButtonHandler.registerPress();
+        
+        if (alarmActive)
+        {
+          alarmActive = false;
+          Serial.println("Alarm stopped!");
+          
+          if (backlightColor != defaultBacklightColor)
+          {
+            backlightColor = defaultBacklightColor;
+            lcd.setBacklight(backlightColor);
+          }
+        }
+        
+        switch (currentMode)
+        {
+          case Mode::CLOCK:
+            updateMode(Mode::CLOCKSET);
+            break;
+          case Mode::CLOCKSET:
+            updateMode(Mode::CLOCK);
+            break;
+        }
       }
     }
   }
-  else
-  {
-    selectButtonStartTimePressed = currentTime;
-  }
+
+  Serial.println(clockTimer);
 }
