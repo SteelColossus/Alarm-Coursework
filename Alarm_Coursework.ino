@@ -261,6 +261,8 @@ const unsigned int shortPressTime = 300;
 const unsigned int shortHoldTime = 150;
 // The amount of time required for a long press of a button
 const unsigned int longPressTime = 1000;
+// The number of presses to required before the above short hold time is used instead of the short press time
+const unsigned int numPressesToHold = 6;
 
 // Enum that contains all the modes that the alarm clock can be in
 enum class Mode { CLOCK, CLOCKSET, ALARMSET };
@@ -360,14 +362,17 @@ class ButtonHandler
       
       if (onShortPress != NULL)
       {
-        if (getTimeSincePress() >= shortPressTime && onLongPress == NULL)
+        int minPressTime = (shortPressTime - shortHoldTime)/(-(double)numPressesToHold) * timesPressedWhileHeld + shortPressTime;
+        minPressTime = (minPressTime > (int)shortHoldTime) ? minPressTime : shortHoldTime;
+        
+        if (onLongPress == NULL && getTimeSincePress() >= minPressTime)
         {
           registerPress();
           onShortPress();
         }
         else if (!isHeldDown())
         {
-          if (previousTimeHeldFor >= shortPressTime && previousTimeHeldFor < longPressTime)
+          if (previousTimeHeldFor > 0 && previousTimeHeldFor < longPressTime)
           {
             registerPress();
             timesPressedWhileHeld = 0;
@@ -533,9 +538,9 @@ int getCentrePos(String str)
 // Updates the time on the screen
 void updateScreenTime()
 {
-  String output = screenTime.getReadable();
+  String output = (currentMode == Mode::ALARMSET) ? alarmTime.getReadable() : screenTime.getReadable();
   
-  if (currentMode == Mode::CLOCKSET)
+  if (currentMode == Mode::CLOCKSET || currentMode == Mode::ALARMSET)
   {
     if (blinkTimer >= blinkTime) blinking = !blinking;
     
@@ -593,6 +598,8 @@ void updateMode(Mode mode)
       if (previousMode == Mode::CLOCKSET) updateEEPROMClock();
       break;
     case Mode::CLOCKSET:
+    case Mode::ALARMSET:
+      selectedEditPart = Time::HOUR;
       resetBlink();
       break;
   }
@@ -632,20 +639,24 @@ void selectButtonShortPress()
 
 void upButtonShortPress()
 {
-  if (currentMode == Mode::CLOCKSET)
+  if (currentMode == Mode::CLOCKSET || currentMode == Mode::ALARMSET)
   {
-    unsigned long previousTime = screenTime.getTotalMillis();
-          
-    if (selectedEditPart == Time::SECOND)
+    unsigned long previousTime;
+    
+    if (currentMode == Mode::CLOCKSET) previousTime = screenTime.getTotalMillis();
+
+    Time * timeToEdit = (currentMode == Mode::ALARMSET) ? &alarmTime : &screenTime;
+    
+    if (currentMode == Mode::CLOCKSET && selectedEditPart == Time::SECOND)
     {
-      screenTime.setTimePart(Time::SECOND, 0);
+      timeToEdit->setTimePart(Time::SECOND, 0);
     }
     else
     {
-      screenTime.addTimePart(selectedEditPart, 1);
+      timeToEdit->addTimePart(selectedEditPart, 1);
     }
     
-    clockOffset += (screenTime.getTotalMillis() - previousTime);
+    if (currentMode == Mode::CLOCKSET) clockOffset += (timeToEdit->getTotalMillis() - previousTime);
     
     resetBlink(false);
   }
@@ -653,20 +664,24 @@ void upButtonShortPress()
 
 void downButtonShortPress()
 {
-  if (currentMode == Mode::CLOCKSET)
+  if (currentMode == Mode::CLOCKSET || currentMode == Mode::ALARMSET)
   {
-    unsigned long previousTime = screenTime.getTotalMillis();
-          
-    if (selectedEditPart == Time::SECOND)
+    unsigned long previousTime;
+    
+    if (currentMode == Mode::CLOCKSET) previousTime = screenTime.getTotalMillis();
+
+    Time * timeToEdit = (currentMode == Mode::ALARMSET) ? &alarmTime : &screenTime;
+    
+    if (currentMode == Mode::CLOCKSET && selectedEditPart == Time::SECOND)
     {
-      screenTime.setTimePart(Time::SECOND, 0);
+      timeToEdit->setTimePart(Time::SECOND, 0);
     }
     else
     {
-      screenTime.subtractTimePart(selectedEditPart, 1);
+      timeToEdit->subtractTimePart(selectedEditPart, 1);
     }
     
-    clockOffset += (screenTime.getTotalMillis() - previousTime);
+    if (currentMode == Mode::CLOCKSET) clockOffset += (timeToEdit->getTotalMillis() - previousTime);
     
     resetBlink(false);
   }
@@ -677,6 +692,7 @@ void leftButtonLongPress()
   switch (currentMode)
   {
     case Mode::CLOCK:
+    case Mode::ALARMSET:
       updateMode(Mode::CLOCKSET);
       break;
     case Mode::CLOCKSET:
@@ -687,7 +703,7 @@ void leftButtonLongPress()
 
 void leftButtonShortPress()
 {
-  if (currentMode == Mode::CLOCKSET)
+  if (currentMode == Mode::CLOCKSET || currentMode == Mode::ALARMSET)
   {
     switch (selectedEditPart)
     {
@@ -703,9 +719,23 @@ void leftButtonShortPress()
   }
 }
 
+void rightButtonLongPress()
+{  
+  switch (currentMode)
+  {
+    case Mode::CLOCK:
+    case Mode::CLOCKSET:
+      updateMode(Mode::ALARMSET);
+      break;
+    case Mode::ALARMSET:
+      updateMode(Mode::CLOCK);
+      break;
+  }
+}
+
 void rightButtonShortPress()
 {
-  if (currentMode == Mode::CLOCKSET)
+  if (currentMode == Mode::CLOCKSET || currentMode == Mode::ALARMSET)
   {
     switch (selectedEditPart)
     {
@@ -751,7 +781,7 @@ void setup()
   downButtonHandler.setOnShortPressHandler(downButtonShortPress);
   leftButtonHandler.setOnLongPressHandler(leftButtonLongPress);
   leftButtonHandler.setOnShortPressHandler(leftButtonShortPress);
-  rightButtonHandler.setOnLongPressHandler(dummyFunc);
+  rightButtonHandler.setOnLongPressHandler(rightButtonLongPress);
   rightButtonHandler.setOnShortPressHandler(rightButtonShortPress);
 
   int h = EEPROM.read(0);
@@ -780,7 +810,7 @@ void loop()
   currentScreenTime = currentTime + clockOffset;
   clockTimer = currentScreenTime - screenTime.getTotalMillis();
 
-  if (currentMode == Mode::CLOCKSET) blinkTimer = currentTime - previousBlinkTime;
+  if (currentMode == Mode::CLOCKSET || currentMode == Mode::ALARMSET) blinkTimer = currentTime - previousBlinkTime;
 
   if (alarmActive) alarmFlashTimer = currentTime - previousAlarmFlashTime;
 
@@ -812,7 +842,7 @@ void loop()
     updateScreenTime();
   }
 
-  if (blinkTimer >= blinkTime && currentMode == Mode::CLOCKSET)
+  if ((currentMode == Mode::CLOCKSET || currentMode == Mode::ALARMSET) && blinkTimer >= blinkTime)
   {
     previousBlinkTime = currentTime;
     
