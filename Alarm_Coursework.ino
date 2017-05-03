@@ -184,9 +184,10 @@ uint8_t topline[8] = {0, 31, 0, 0, 0, 0, 0, 0};
 uint8_t upperbracket[8] = {16, 16, 8, 7, 0, 0, 0, 0};
 uint8_t sixstem[8] = {0, 3, 4, 8, 8, 8, 8, 8};
 uint8_t alarm[8] = {31, 4, 14, 21, 23, 17, 14, 0};
+uint8_t selectsmall[8] = {12, 16, 8, 5, 26, 4, 4, 7};
 
 // Enum with all the names of the custom characters (same as those above) with their custom character numbers
-enum class CustomChars : uint8_t { BACKSLASH = 0, BLTOTRDIAG = 1, TRTOBLDIAG = 2, TOPLINE = 3, UPPERBRACKET = 4, SIXSTEM = 5, ALARM = 6 };
+enum class CustomChars : uint8_t { BACKSLASH = 0, BLTOTRDIAG = 1, TRTOBLDIAG = 2, TOPLINE = 3, UPPERBRACKET = 4, SIXSTEM = 5, ALARM = 6, SELECTSMALL = 7 };
 
 // An array containing the block of 2x2 characters to be displayed for each digit 0-9 in order. Each number is composed of 4 individual characters stored as unsigned integers in ASCII form.
 // Some numbers are given by the custom characters, and represent that that custom character should be printed out at that point (e.g. printing backlash which is custom character 0). Others list the ASCII code as they are not commonly used ASCII characters on most computers.
@@ -269,8 +270,11 @@ const unsigned int numPressesToHold = 8;
 // The amount of time that is added when the clock is snoozed, in milliseconds
 const unsigned long snoozeAddTime = 1000 * 30;
 
+// The index of the currently selected menu option
+int menuCursor = 0;
+
 // Enum that contains all the modes that the alarm clock can be in
-enum class Mode { CLOCK, CLOCKSET, ALARMSET };
+enum class Mode { CLOCK, CLOCKSET, ALARMSET, MENU };
 
 // The current mode that the alarm clock is in
 Mode currentMode;
@@ -406,6 +410,16 @@ ButtonHandler leftButtonHandler (BUTTON_LEFT);
 ButtonHandler rightButtonHandler (BUTTON_RIGHT);
 ButtonHandler selectButtonHandler (BUTTON_SELECT);
 
+// Returns a string with the provided string s repeated n number of times 
+String repeat(String s, int n)
+{
+  String res = "";
+
+  for (int i = 0; i < n; i++) res += s;
+
+  return res;
+}
+
 // Sets the cursor position to the given x and y co-ordinates
 void setCursorPos(int x, int y)
 {
@@ -479,10 +493,20 @@ void printToScreen(String str, int x=cursorX)
 
 // Updates the text on the screen with a new string of characters at a specified cursor position
 void updateScreen(String str, int x=cursorX)
-{  
-  if (getWidthOnScreen(str) != getWidthOnScreen(currentText))
+{
+  int stringWidth = getWidthOnScreen(str);
+  
+  if (stringWidth != getWidthOnScreen(currentText))
   {
-    printToScreen(str, x);
+    if (currentText.length() >= screenWidth * screenHeight)
+    {
+      String fullStr = repeat(" ", floor((screenWidth - stringWidth) / 2)) + str + repeat(" ", ceil((screenWidth - stringWidth) / 2));
+      printToScreen(fullStr, 0);
+    }
+    else
+    {
+      printToScreen(str, x);
+    }
   }
   else if (str != currentText)
   {    
@@ -519,7 +543,7 @@ void updateScreen(String str, int x=cursorX)
       j += (c1w > c2w ? (c1w - c2w) + 1 : 1);
     }
   }
-  
+
   currentText = str;
 }
 
@@ -556,11 +580,54 @@ void updateScreenTime()
     if (blinking)
     {
       int sp = (int)selectedEditPart;
-      output = output.substring(0, sp*3) + "    " + output.substring(sp*3 + 2);
+      output = output.substring(0, sp*3) + repeat(" ", 4) + output.substring(sp*3 + 2);
     }
   }
   
   updateScreen(output, getCentrePos(output));
+}
+
+// Updates the menu on the screen
+void updateMenu()
+{
+  String options[4] = {"Set time", String("Alarm:") + ((alarmOn) ? "Y" : "N"), "Set alarm", "Exit"};
+  
+  if (blinkTimer >= blinkTime) blinking = !blinking;
+  
+  setCursorPos(0, 0);
+  
+  String firstLine = "";
+
+  firstLine += (blinking && menuCursor == 0) ? repeat(" ", options[0].length()) : options[0];
+  firstLine += repeat(" ", screenWidth - (options[0].length() + options[1].length()));
+  firstLine += (blinking && menuCursor == 1) ? repeat(" ", options[1].length()) : options[1];
+  
+  lcd.print(firstLine);
+  
+  setCursorPos(0, 1);
+  
+  String secondLine = "";
+  
+  secondLine += (blinking && menuCursor == 2) ? repeat(" ", options[2].length()) : options[2];
+  secondLine += repeat(" ", screenWidth - (options[2].length() + options[3].length()));
+  secondLine += (blinking && menuCursor == 3) ? repeat(" ", options[3].length()) : options[3];
+  
+  lcd.print(secondLine);
+
+  currentText = firstLine + secondLine;
+}
+
+// Updates the screen
+void updateScreen()
+{
+  if (currentMode == Mode::MENU)
+  {
+    updateMenu();
+  }
+  else
+  {
+    updateScreenTime();
+  }
 }
 
 // Resets the blinking of the screen and updates the screen
@@ -568,7 +635,7 @@ void resetBlink(bool b=true)
 {
     blinkTimer = 0;
     blinking = b;
-    updateScreenTime();
+    updateScreen();
     previousBlinkTime = millis();
 }
 
@@ -622,11 +689,15 @@ void updateMode(Mode mode)
     case Mode::CLOCKSET:
     case Mode::ALARMSET:
       selectedEditPart = Time::HOUR;
-      resetBlink();
+      resetBlink(false);
+      break;
+    case Mode::MENU:
+      menuCursor = 0;
+      updateMenu();
       break;
   }
 
-  updateOtherScreenChars();
+  if (currentMode != Mode::MENU) updateOtherScreenChars();
 }
 
 // Sets whether the alarm is currently active
@@ -657,6 +728,25 @@ void setAlarm(bool active)
 // A function handler that doesn't do anything, and that is used to alter the short button press functionality of the button handler it is set to
 void dummyFunc() { return; }
 
+// A function handler that is called whenever there is a long press of the select button
+void selectButtonLongPress()
+{
+  if (currentMode != Mode::MENU)
+  {
+    switch (currentMode)
+    {
+      case Mode::CLOCKSET:
+        updateEEPROMClock();
+        break;
+      case Mode::ALARMSET:
+        updateEEPROMAlarm();
+        break;
+    }
+    
+    updateMode(Mode::MENU);
+  }
+}
+
 // A function handler that is called whenever there is a short press of the select button
 void selectButtonShortPress()
 {
@@ -665,6 +755,27 @@ void selectButtonShortPress()
     setAlarm(false);
     snoozeTime = screenTime;
     snoozeTime.addTime(snoozeAddTime);
+  }
+  else if (currentMode == Mode::MENU)
+  {
+    switch (menuCursor)
+    {
+      case 0:
+        updateMode(Mode::CLOCKSET);
+        break;
+      case 1:
+        alarmOn = !alarmOn;
+        if (!alarmOn) snoozeTime = alarmTime;
+        EEPROM.write(4, alarmOn);
+        resetBlink(false);
+        break;
+      case 2:
+        updateMode(Mode::ALARMSET);
+        break;
+      case 3:
+        updateMode(Mode::CLOCK);
+        break;
+    }
   }
   else
   {
@@ -716,6 +827,14 @@ void upButtonShortPress()
     
     resetBlink(false);
   }
+  else if (currentMode == Mode::MENU)
+  {
+    if (menuCursor == 2 || menuCursor == 3)
+    {
+      menuCursor -= 2;
+      resetBlink();
+    }
+  }
 }
 
 // A function handler that is called whenever there is a short press of the down button
@@ -749,21 +868,13 @@ void downButtonShortPress()
     
     resetBlink(false);
   }
-}
-
-// A function handler that is called whenever there is a long press of the left button
-void leftButtonLongPress()
-{  
-  switch (currentMode)
+  else if (currentMode == Mode::MENU)
   {
-    case Mode::CLOCK:
-    case Mode::ALARMSET:
-      updateMode(Mode::CLOCKSET);
-      break;
-    case Mode::CLOCKSET:
-      updateMode(Mode::CLOCK);
-      updateEEPROMClock();
-      break;
+    if (menuCursor == 0 || menuCursor == 1)
+    {
+      menuCursor += 2;
+      resetBlink();
+    }
   }
 }
 
@@ -784,21 +895,13 @@ void leftButtonShortPress()
         break;
     }
   }
-}
-
-// A function handler that is called whenever there is a long press of the right button
-void rightButtonLongPress()
-{  
-  switch (currentMode)
+  else if (currentMode == Mode::MENU)
   {
-    case Mode::CLOCK:
-    case Mode::CLOCKSET:
-      updateMode(Mode::ALARMSET);
-      break;
-    case Mode::ALARMSET:
-      updateMode(Mode::CLOCK);
-      updateEEPROMAlarm();
-      break;
+    if (menuCursor == 1 || menuCursor == 3)
+    {
+      menuCursor--;
+      resetBlink();
+    }
   }
 }
 
@@ -819,6 +922,14 @@ void rightButtonShortPress()
         break;
     }
   }
+  else if (currentMode == Mode::MENU)
+  {
+    if (menuCursor == 0 || menuCursor == 2)
+    {
+      menuCursor++;
+      resetBlink();
+    }
+  }
 }
 
 // Sets up a number of custom characters
@@ -831,6 +942,7 @@ void setupCustomChars()
   lcd.createChar((int)CustomChars::UPPERBRACKET, upperbracket);
   lcd.createChar((int)CustomChars::SIXSTEM, sixstem);
   lcd.createChar((int)CustomChars::ALARM, alarm);
+  lcd.createChar((int)CustomChars::SELECTSMALL, selectsmall);
 }
 
 // Performs initial setup as the program starts
@@ -861,16 +973,14 @@ void setup()
   
   Serial.println("Alarm time: " + alarmTime.getReadableShort());
 
-  selectButtonHandler.setOnLongPressHandler(dummyFunc);
+  selectButtonHandler.setOnLongPressHandler(selectButtonLongPress);
   selectButtonHandler.setOnShortPressHandler(selectButtonShortPress);
   upButtonHandler.setOnShortPressHandler(upButtonShortPress);
   downButtonHandler.setOnShortPressHandler(downButtonShortPress);
-  leftButtonHandler.setOnLongPressHandler(leftButtonLongPress);
   leftButtonHandler.setOnShortPressHandler(leftButtonShortPress);
-  rightButtonHandler.setOnLongPressHandler(rightButtonLongPress);
   rightButtonHandler.setOnShortPressHandler(rightButtonShortPress);
 
-  updateScreenTime();
+  updateScreen();
   updateOtherScreenChars();
 
   currentTime = millis();
@@ -885,7 +995,7 @@ void loop()
   currentScreenTime = currentTime + clockOffset;
   clockTimer = currentScreenTime - screenTime.getTotalMillis();
 
-  if (currentMode == Mode::CLOCKSET || currentMode == Mode::ALARMSET) blinkTimer = currentTime - previousBlinkTime;
+  if (currentMode == Mode::CLOCKSET || currentMode == Mode::ALARMSET || currentMode == Mode::MENU) blinkTimer = currentTime - previousBlinkTime;
 
   if (alarmActive) alarmFlashTimer = currentTime - previousAlarmFlashTime;
 
@@ -913,14 +1023,14 @@ void loop()
       setAlarm(true);
     }
 
-    updateScreenTime();
+    if (currentMode != Mode::MENU) updateScreenTime();
   }
 
-  if ((currentMode == Mode::CLOCKSET || currentMode == Mode::ALARMSET) && blinkTimer >= blinkTime)
+  if ((currentMode == Mode::CLOCKSET || currentMode == Mode::ALARMSET || currentMode == Mode::MENU) && blinkTimer >= blinkTime)
   {
     previousBlinkTime = currentTime;
     
-    if (clockTimer < 1000) updateScreenTime();
+    if (clockTimer < 1000) updateScreen();
     
     blinkTimer = 0;
   }
