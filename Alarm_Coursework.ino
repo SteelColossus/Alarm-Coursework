@@ -183,7 +183,7 @@ uint8_t trtobldiag[8] = {0, 30, 1, 2, 4, 8, 16, 0};
 uint8_t topline[8] = {0, 31, 0, 0, 0, 0, 0, 0};
 uint8_t upperbracket[8] = {16, 16, 8, 7, 0, 0, 0, 0};
 uint8_t sixstem[8] = {0, 3, 4, 8, 8, 8, 8, 8};
-uint8_t alarm[8] = {0, 31, 14, 21, 23, 17, 14, 0};
+uint8_t alarm[8] = {31, 4, 14, 21, 23, 17, 14, 0};
 
 // Enum with all the names of the custom characters (same as those above) with their custom character numbers
 enum class CustomChars : uint8_t { BACKSLASH = 0, BLTOTRDIAG = 1, TRTOBLDIAG = 2, TOPLINE = 3, UPPERBRACKET = 4, SIXSTEM = 5, ALARM = 6 };
@@ -215,54 +215,59 @@ String currentText = "";
 
 // The stored time that is displayed on the screen
 Time screenTime;
-// The set alarm time
+// The alarm time set by the user
 Time alarmTime;
+// The alarm time used to keep track of how long the clock has been snoozed for
+Time snoozeTime;
 
 // The current amount of time the program has been running for in milliseconds
 unsigned long currentTime = 0;
 // The current amount of time used as the time displayed on the screen in milliseconds. This is offset from currentTime by the value clockOffset.
 unsigned long currentScreenTime = 0;
-// The value used to offset the current time to the time displayed on the screen
+// The value used to offset the current time to the time displayed on the screen in milliseconds
 long clockOffset = 0;
 
-// A timer used to update the screen time around every second
+// A timer used to update the screen time around every second, in milliseconds
 unsigned int clockTimer = 0;
-// The last time the clock was 'reset' (i.e. started or got to midnight)
+// The last time the clock was 'reset' in milliseconds (i.e. started or got to midnight)
 unsigned long clockResetTime = 0;
-// A timer used to update whether a time part on the screen is present for the blinking 'animation'
+// A timer used to update whether a time part on the screen is present for the blinking 'animation', in milliseconds
 unsigned int blinkTimer = 0;
-// The last time the blink status was updated
+// The last time the blink status was updated, in milliseconds
 unsigned long previousBlinkTime = 0;
-// A timer used to update what colour the screen backlight should be for the alarm flashing 'animation'
+// A timer used to update what colour the screen backlight should be for the alarm flashing 'animation', in milliseconds
 unsigned int alarmFlashTimer = 0;
-// The last time the flashing status of the alarm was updated
+// The last time the flashing status of the alarm was updated, in milliseconds
 unsigned long previousAlarmFlashTime = 0;
 
 // Whether a part on the screen is currently blinking (part is not visible) or not blinking (whole time is visible)
 bool blinking = false;
 
-// Whether the alarm is currently active
+// Whether the alarm is currently on
 bool alarmOn = false;
-// Whether the alarm is currently active
+// Whether the alarm is currently active (the time has been reached and the alarm has been triggered)
 bool alarmActive = false;
 // The default colour of the backlight
 const int defaultBacklightColor = 0x7;
 // The current colour of the backlight
 int backlightColor;
 
-// The amount of time it takes for the screen to switch between blinking and not blinking for the blinking 'animation'
+// The amount of time it takes for the screen to switch between blinking and not blinking for the blinking 'animation', in milliseconds
 const unsigned int blinkTime = 500;
-// The amount of time it takes for the screen to switch between different backlight colours for the alarm flashing 'animation'
+// The amount of time it takes for the screen to switch between different backlight colours for the alarm flashing 'animation', in milliseconds
 const unsigned int alarmFlashTime = 500;
 
-// The amount of time required for a short press of a button
+// The amount of time required for a short press of a button initially, in milliseconds
 const unsigned int shortPressTime = 300;
-// The amount of time required for each short press of a button to be registered when the button has been held down for an amount of time
-const unsigned int shortHoldTime = 150;
-// The amount of time required for a long press of a button
+// The minimum amount of time required for each short press of a button to be registered when the button has been held down for an amount of presses, in milliseconds
+const unsigned int shortHoldTime = 125;
+// The amount of time required for a long press of a button, in milliseconds
 const unsigned int longPressTime = 1000;
-// The number of presses to required before the above short hold time is used instead of the short press time
-const unsigned int numPressesToHold = 6;
+// The number of presses required before the above short hold time is used instead of the short press time, in milliseconds
+const unsigned int numPressesToHold = 8;
+
+// The amount of time that is added when the clock is snoozed, in milliseconds
+const unsigned long snoozeAddTime = 1000 * 30;
 
 // Enum that contains all the modes that the alarm clock can be in
 enum class Mode { CLOCK, CLOCKSET, ALARMSET };
@@ -290,17 +295,21 @@ class ButtonHandler
     // The number of presses the handler has registered while the button was continuously held down
     int timesPressedWhileHeld;
 
+    // Function to call when a short press is registered
     func onShortPress;
+    // Function to call when a short press is registered
     func onLongPress;
 
   public:
     ButtonHandler(byte b) : buttonByte(b) { }
 
+    // Sets the function to call when a short press is registered
     void setOnShortPressHandler(func f)
     {
       onShortPress = f;
     }
 
+    // Sets the function to call when a long press is registered
     void setOnLongPressHandler(func f)
     {
       onLongPress = f;
@@ -330,7 +339,7 @@ class ButtonHandler
       return timesPressedWhileHeld;
     }
 
-    // Updates the internal state of the handler
+    // Updates the internal state of the handler and fires the press functions if the correct circumstances have been met
     void update()
     {
       unsigned long previousTimeHeldFor = 0;
@@ -563,6 +572,7 @@ void resetBlink(bool b=true)
     previousBlinkTime = millis();
 }
 
+// Updates the other regular sized characters on the screen
 void updateOtherScreenChars()
 {
   setCursorPos(screenWidth - 1, 0);
@@ -582,20 +592,32 @@ void updateOtherScreenChars()
   
   setCursorPos(screenWidth - 1, 1);
   
-  lcd.write((alarmOn) ? (char)CustomChars::ALARM : ' ');
+  lcd.write((alarmOn) ? (char)CustomChars::ALARM : 'o');
+}
+
+// Updates the Arduino's flash memory to set the current hour and minute displayed on screen
+void updateEEPROMClock()
+{
+  EEPROM.write(0, screenTime.getTimePart(Time::HOUR));
+  EEPROM.write(1, screenTime.getTimePart(Time::MINUTE));
+}
+
+// Updates the Arduino's flash memory to set the current hour and minute that has been set for the alarm
+void updateEEPROMAlarm()
+{
+  EEPROM.write(2, alarmTime.getTimePart(Time::HOUR));
+  EEPROM.write(3, alarmTime.getTimePart(Time::MINUTE));
 }
 
 // Changes the current mode of the alarm clock
 void updateMode(Mode mode)
 {
-  Mode previousMode = currentMode;
   currentMode = mode;
   
   switch (mode)
   {
     case Mode::CLOCK:
       updateScreenTime();
-      if (previousMode == Mode::CLOCKSET) updateEEPROMClock();
       break;
     case Mode::CLOCKSET:
     case Mode::ALARMSET:
@@ -607,20 +629,19 @@ void updateMode(Mode mode)
   updateOtherScreenChars();
 }
 
-// Updates the Arduino's flash memory to set the current hour and minute displayed on screen
-void updateEEPROMClock()
+// Sets whether the alarm is currently active
+void setAlarm(bool active)
 {
-  EEPROM.write(0, screenTime.getTimePart(Time::HOUR));
-  EEPROM.write(1, screenTime.getTimePart(Time::MINUTE));
-}
+  alarmActive = active;
 
-void dummyFunc() { return; }
-
-void selectButtonLongPress()
-{
   if (alarmActive)
   {
-    alarmActive = false;
+    Serial.println("Alarm started!");
+    updateMode(Mode::CLOCK);
+    upButtonHandler.setOnLongPressHandler(upButtonLongPressIfAlarmActive);
+  }
+  else
+  {
     Serial.println("Alarm stopped!");
     
     if (backlightColor != defaultBacklightColor)
@@ -628,15 +649,43 @@ void selectButtonLongPress()
       backlightColor = defaultBacklightColor;
       lcd.setBacklight(backlightColor);
     }
+    
+    upButtonHandler.setOnLongPressHandler(NULL);
   }
 }
 
+// A function handler that doesn't do anything, and that is used to alter the short button press functionality of the button handler it is set to
+void dummyFunc() { return; }
+
+// A function handler that is called whenever there is a short press of the select button
 void selectButtonShortPress()
 {
-  alarmOn = !alarmOn;
-  updateOtherScreenChars();
+  if (alarmActive)
+  {
+    setAlarm(false);
+    snoozeTime = screenTime;
+    snoozeTime.addTime(snoozeAddTime);
+  }
+  else
+  {
+    alarmOn = !alarmOn;
+    if (!alarmOn) snoozeTime = alarmTime;
+    EEPROM.write(4, alarmOn);
+    updateOtherScreenChars();
+  }
 }
 
+// A function handler that is called whenever there is a long press of the up button and the alarm is currently active
+void upButtonLongPressIfAlarmActive()
+{
+  if (alarmActive)
+  {
+    setAlarm(false);
+    snoozeTime = alarmTime;
+  }
+}
+
+// A function handler that is called whenever there is a short press of the up button
 void upButtonShortPress()
 {
   if (currentMode == Mode::CLOCKSET || currentMode == Mode::ALARMSET)
@@ -656,12 +705,20 @@ void upButtonShortPress()
       timeToEdit->addTimePart(selectedEditPart, 1);
     }
     
-    if (currentMode == Mode::CLOCKSET) clockOffset += (timeToEdit->getTotalMillis() - previousTime);
+    if (currentMode == Mode::CLOCKSET)
+    {
+      clockOffset += (timeToEdit->getTotalMillis() - previousTime);
+    }
+    else if (currentMode == Mode::ALARMSET)
+    {
+      snoozeTime = *timeToEdit;
+    }
     
     resetBlink(false);
   }
 }
 
+// A function handler that is called whenever there is a short press of the down button
 void downButtonShortPress()
 {
   if (currentMode == Mode::CLOCKSET || currentMode == Mode::ALARMSET)
@@ -681,12 +738,20 @@ void downButtonShortPress()
       timeToEdit->subtractTimePart(selectedEditPart, 1);
     }
     
-    if (currentMode == Mode::CLOCKSET) clockOffset += (timeToEdit->getTotalMillis() - previousTime);
+    if (currentMode == Mode::CLOCKSET)
+    {
+      clockOffset += (timeToEdit->getTotalMillis() - previousTime);
+    }
+    else if (currentMode == Mode::ALARMSET)
+    {
+      snoozeTime = *timeToEdit;
+    }
     
     resetBlink(false);
   }
 }
 
+// A function handler that is called whenever there is a long press of the left button
 void leftButtonLongPress()
 {  
   switch (currentMode)
@@ -697,10 +762,12 @@ void leftButtonLongPress()
       break;
     case Mode::CLOCKSET:
       updateMode(Mode::CLOCK);
+      updateEEPROMClock();
       break;
   }
 }
 
+// A function handler that is called whenever there is a short press of the left button
 void leftButtonShortPress()
 {
   if (currentMode == Mode::CLOCKSET || currentMode == Mode::ALARMSET)
@@ -719,6 +786,7 @@ void leftButtonShortPress()
   }
 }
 
+// A function handler that is called whenever there is a long press of the right button
 void rightButtonLongPress()
 {  
   switch (currentMode)
@@ -729,10 +797,12 @@ void rightButtonLongPress()
       break;
     case Mode::ALARMSET:
       updateMode(Mode::CLOCK);
+      updateEEPROMAlarm();
       break;
   }
 }
 
+// A function handler that is called whenever there is a short press of the right button
 void rightButtonShortPress()
 {
   if (currentMode == Mode::CLOCKSET || currentMode == Mode::ALARMSET)
@@ -763,6 +833,7 @@ void setupCustomChars()
   lcd.createChar((int)CustomChars::ALARM, alarm);
 }
 
+// Performs initial setup as the program starts
 void setup()
 {
   Serial.begin(9600);
@@ -775,15 +846,6 @@ void setup()
   currentMode = Mode::CLOCK;
   selectedEditPart = Time::HOUR;
 
-  selectButtonHandler.setOnLongPressHandler(selectButtonLongPress);
-  selectButtonHandler.setOnShortPressHandler(selectButtonShortPress);
-  upButtonHandler.setOnShortPressHandler(upButtonShortPress);
-  downButtonHandler.setOnShortPressHandler(downButtonShortPress);
-  leftButtonHandler.setOnLongPressHandler(leftButtonLongPress);
-  leftButtonHandler.setOnShortPressHandler(leftButtonShortPress);
-  rightButtonHandler.setOnLongPressHandler(rightButtonLongPress);
-  rightButtonHandler.setOnShortPressHandler(rightButtonShortPress);
-
   int h = EEPROM.read(0);
   int m = EEPROM.read(1);
 
@@ -793,8 +855,20 @@ void setup()
   int am = EEPROM.read(3);
 
   alarmTime.setTime(ah, am, 0);
+  snoozeTime = alarmTime;
+
+  alarmOn = EEPROM.read(4);
   
   Serial.println("Alarm time: " + alarmTime.getReadableShort());
+
+  selectButtonHandler.setOnLongPressHandler(dummyFunc);
+  selectButtonHandler.setOnShortPressHandler(selectButtonShortPress);
+  upButtonHandler.setOnShortPressHandler(upButtonShortPress);
+  downButtonHandler.setOnShortPressHandler(downButtonShortPress);
+  leftButtonHandler.setOnLongPressHandler(leftButtonLongPress);
+  leftButtonHandler.setOnShortPressHandler(leftButtonShortPress);
+  rightButtonHandler.setOnLongPressHandler(rightButtonLongPress);
+  rightButtonHandler.setOnShortPressHandler(rightButtonShortPress);
 
   updateScreenTime();
   updateOtherScreenChars();
@@ -804,6 +878,7 @@ void setup()
   clockOffset = screenTime.getTotalMillis() - clockResetTime;
 }
 
+// Loops continually while the program is running
 void loop()
 {  
   currentTime = millis();
@@ -833,10 +908,9 @@ void loop()
 
     if (screenTime.getTimePart(Time::MINUTE) != prevMins && currentMode != Mode::CLOCKSET) updateEEPROMClock();
 
-    if (alarmOn && screenTime == alarmTime)
+    if (alarmOn && screenTime == snoozeTime)
     {
-      Serial.println("Alarm started!");
-      alarmActive = true;
+      setAlarm(true);
     }
 
     updateScreenTime();
