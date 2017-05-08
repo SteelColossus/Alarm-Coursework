@@ -184,10 +184,10 @@ uint8_t topline[8] = {0, 31, 0, 0, 0, 0, 0, 0};
 uint8_t upperbracket[8] = {16, 16, 8, 7, 0, 0, 0, 0};
 uint8_t sixstem[8] = {0, 3, 4, 8, 8, 8, 8, 8};
 uint8_t alarm[8] = {31, 4, 14, 21, 23, 17, 14, 0};
-uint8_t selectsmall[8] = {12, 16, 8, 5, 26, 4, 4, 7};
+uint8_t downarrow[8] = {0, 0, 0, 0, 17, 10, 4, 0};
 
 // Enum with all the names of the custom characters (same as those above) with their custom character numbers
-enum class CustomChars : uint8_t { BACKSLASH = 0, BLTOTRDIAG = 1, TRTOBLDIAG = 2, TOPLINE = 3, UPPERBRACKET = 4, SIXSTEM = 5, ALARM = 6, SELECTSMALL = 7 };
+enum class CustomChars : uint8_t { BACKSLASH = 0, BLTOTRDIAG = 1, TRTOBLDIAG = 2, TOPLINE = 3, UPPERBRACKET = 4, SIXSTEM = 5, ALARM = 6, DOWNARROW = 7 };
 
 // An array containing the block of 2x2 characters to be displayed for each digit 0-9 in order. Each number is composed of 4 individual characters stored as unsigned integers in ASCII form.
 // Some numbers are given by the custom characters, and represent that that custom character should be printed out at that point (e.g. printing backlash which is custom character 0). Others list the ASCII code as they are not commonly used ASCII characters on most computers.
@@ -240,6 +240,10 @@ unsigned long previousBlinkTime = 0;
 unsigned int alarmFlashTimer = 0;
 // The last time the flashing status of the alarm was updated, in milliseconds
 unsigned long previousAlarmFlashTime = 0;
+// A timer used to show the user hints every so often
+unsigned long hintTimer = 0;
+// The last time a hint was shown to the user
+unsigned long previousHintTime = 0;
 
 // Whether a part on the screen is currently blinking (part is not visible) or not blinking (whole time is visible)
 bool blinking = false;
@@ -253,10 +257,23 @@ const int defaultBacklightColor = 0x7;
 // The current colour of the backlight
 int backlightColor;
 
+// Whether the screen will display hints
+bool hintsOn = true;
+// Whether the screen will display hints
+bool hintsActive = false;
+// The number of the hint screen being displayed
+unsigned int hintNumber = 0;
+// The number of hint screens to show for each of the different modes
+unsigned int hintNumberArray[4] = {3, 3, 3, 2}; 
+
 // The amount of time it takes for the screen to switch between blinking and not blinking for the blinking 'animation', in milliseconds
 const unsigned int blinkTime = 500;
 // The amount of time it takes for the screen to switch between different backlight colours for the alarm flashing 'animation', in milliseconds
 const unsigned int alarmFlashTime = 500;
+// The amount of time it takes for the screen to switch between showing hints and showing the clock
+const unsigned int betweenHintsTime = 7500;
+// The amount of time that a hint is displayed on the screen
+const unsigned int hintTime = 2000;
 
 // The amount of time required for a short press of a button initially, in milliseconds
 const unsigned int shortPressTime = 300;
@@ -617,6 +634,115 @@ void updateMenu()
   currentText = firstLine + secondLine;
 }
 
+// Updates the current hint on the screen
+void updateHints()
+{  
+  String firstLine = "";
+  String secondLine = "";
+  
+  switch (currentMode)
+  {
+    case Mode::CLOCK:
+      switch (hintNumber)
+      {
+        case 0:
+          if (alarmActive)
+          {
+            firstLine = " PRESS SELECT:  ";
+            secondLine = "  Snooze alarm  ";
+          }
+          else
+          {
+            firstLine = "  HOLD SELECT:  ";
+            secondLine = "   Go to menu   ";
+          }
+          break;
+        case 1:
+          if (alarmActive)
+          {
+            firstLine = "    HOLD UP:    ";
+            secondLine = " Turn off alarm ";
+          }
+          else
+          {
+            firstLine = "  PRESS RIGHT:  ";
+            secondLine = "  Toggle alarm  ";
+          }
+          break;
+        case 2:
+          if (alarmActive)
+          {
+            firstLine = "  PRESS RIGHT:  ";
+            secondLine = "  Toggle alarm  ";
+          }
+          else
+          {
+            firstLine = "   HOLD LEFT:   ";
+            secondLine = "  Toggle hints  ";
+          }
+          break;
+      }
+      break;
+    case Mode::CLOCKSET:
+    case Mode::ALARMSET:
+      switch (hintNumber)
+      {
+        case 0:
+          firstLine = "  " + String((char)127) + "/" + String((char)126) + ": Change   ";
+          secondLine = "  time segment  ";
+          break;
+        case 1:
+          firstLine = " ^/" + String((char)CustomChars::DOWNARROW) + ": Increase/ ";
+          secondLine = " decrease time  ";
+          break;
+        case 2:
+          firstLine = "  HOLD SELECT:  ";
+          secondLine = " Return to menu ";
+          break;
+      }
+      break;
+    case Mode::MENU:
+      switch (hintNumber)
+      {
+        case 0:
+          firstLine = "    " + String((char)127) + "/" + String((char)126) + "/^/" + String((char)CustomChars::DOWNARROW) + ":    ";
+          secondLine = " Navigate menu  ";
+          break;
+        case 1:
+          firstLine = " PRESS SELECT:  ";
+          secondLine = " Select option  ";
+          break;
+      }
+      break;
+  }
+
+  setCursorPos(0, 0);
+  lcd.print(firstLine);
+  setCursorPos(0, 1);
+  lcd.print(secondLine);
+
+  currentText = firstLine + secondLine;
+  hintNumber++;
+}
+
+// Resets the hints to be showing or not showing
+void resetHints(bool active)
+{
+  previousHintTime = currentTime;
+    
+  hintsActive = active;
+
+  if (hintsActive)
+  {
+    updateHints();
+  }
+  else
+  {
+    hintNumber = 0;
+    updateMode(currentMode);
+  }
+}
+
 // Updates the screen
 void updateScreen()
 {
@@ -642,6 +768,13 @@ void resetBlink(bool b=true)
 // Updates the other regular sized characters on the screen
 void updateOtherScreenChars()
 {
+  setCursorPos(0, 1);
+
+  if (currentMode != Mode::MENU)
+  {
+    lcd.write((hintsOn) ? 'H' : ' ');
+  }
+  
   setCursorPos(screenWidth - 1, 0);
 
   switch (currentMode)
@@ -684,18 +817,22 @@ void updateMode(Mode mode)
   switch (mode)
   {
     case Mode::CLOCK:
+      menuCursor = 0;
       updateScreenTime();
       break;
     case Mode::CLOCKSET:
     case Mode::ALARMSET:
-      selectedEditPart = Time::HOUR;
       resetBlink(false);
       break;
     case Mode::MENU:
-      menuCursor = 0;
       updateMenu();
       break;
   }
+  
+  leftButtonHandler.setOnLongPressHandler((currentMode == Mode::CLOCK) ? leftButtonLongPress : NULL);
+  rightButtonHandler.setOnLongPressHandler((currentMode == Mode::CLOCK) ? dummyFunc : NULL);
+
+  //if (hintsOn) resetHints(false);
 
   if (currentMode != Mode::MENU) updateOtherScreenChars();
 }
@@ -707,14 +844,11 @@ void setAlarm(bool active)
 
   if (alarmActive)
   {
-    Serial.println("Alarm started!");
     updateMode(Mode::CLOCK);
     upButtonHandler.setOnLongPressHandler(upButtonLongPressIfAlarmActive);
   }
   else
-  {
-    Serial.println("Alarm stopped!");
-    
+  {    
     if (backlightColor != defaultBacklightColor)
     {
       backlightColor = defaultBacklightColor;
@@ -777,13 +911,6 @@ void selectButtonShortPress()
         break;
     }
   }
-  else
-  {
-    alarmOn = !alarmOn;
-    if (!alarmOn) snoozeTime = alarmTime;
-    EEPROM.write(4, alarmOn);
-    updateOtherScreenChars();
-  }
 }
 
 // A function handler that is called whenever there is a long press of the up button and the alarm is currently active
@@ -799,136 +926,165 @@ void upButtonLongPressIfAlarmActive()
 // A function handler that is called whenever there is a short press of the up button
 void upButtonShortPress()
 {
-  if (currentMode == Mode::CLOCKSET || currentMode == Mode::ALARMSET)
+  switch (currentMode)
   {
-    unsigned long previousTime;
+    case Mode::CLOCKSET:
+    case Mode::ALARMSET:
+      {
+        unsigned long previousTime;
+        
+        if (currentMode == Mode::CLOCKSET) previousTime = screenTime.getTotalMillis();
     
-    if (currentMode == Mode::CLOCKSET) previousTime = screenTime.getTotalMillis();
-
-    Time * timeToEdit = (currentMode == Mode::ALARMSET) ? &alarmTime : &screenTime;
-    
-    if (currentMode == Mode::CLOCKSET && selectedEditPart == Time::SECOND)
-    {
-      timeToEdit->setTimePart(Time::SECOND, 0);
-    }
-    else
-    {
-      timeToEdit->addTimePart(selectedEditPart, 1);
-    }
-    
-    if (currentMode == Mode::CLOCKSET)
-    {
-      clockOffset += (timeToEdit->getTotalMillis() - previousTime);
-    }
-    else if (currentMode == Mode::ALARMSET)
-    {
-      snoozeTime = *timeToEdit;
-    }
-    
-    resetBlink(false);
-  }
-  else if (currentMode == Mode::MENU)
-  {
-    if (menuCursor == 2 || menuCursor == 3)
-    {
-      menuCursor -= 2;
-      resetBlink();
-    }
+        Time * timeToEdit = (currentMode == Mode::ALARMSET) ? &alarmTime : &screenTime;
+        
+        if (currentMode == Mode::CLOCKSET && selectedEditPart == Time::SECOND)
+        {
+          timeToEdit->setTimePart(Time::SECOND, 0);
+        }
+        else
+        {
+          timeToEdit->addTimePart(selectedEditPart, 1);
+        }
+        
+        if (currentMode == Mode::CLOCKSET)
+        {
+          clockOffset += (timeToEdit->getTotalMillis() - previousTime);
+        }
+        else if (currentMode == Mode::ALARMSET)
+        {
+          snoozeTime = *timeToEdit;
+        }
+        
+        resetBlink(false);
+      }
+      break;
+    case Mode::MENU:
+      if (menuCursor == 2 || menuCursor == 3)
+      {
+        menuCursor -= 2;
+        resetBlink();
+      }
+      break;
   }
 }
 
 // A function handler that is called whenever there is a short press of the down button
 void downButtonShortPress()
 {
-  if (currentMode == Mode::CLOCKSET || currentMode == Mode::ALARMSET)
+  switch (currentMode)
   {
-    unsigned long previousTime;
-    
-    if (currentMode == Mode::CLOCKSET) previousTime = screenTime.getTotalMillis();
-
-    Time * timeToEdit = (currentMode == Mode::ALARMSET) ? &alarmTime : &screenTime;
-    
-    if (currentMode == Mode::CLOCKSET && selectedEditPart == Time::SECOND)
+    case Mode::CLOCKSET:
+    case Mode::ALARMSET:
     {
-      timeToEdit->setTimePart(Time::SECOND, 0);
+      unsigned long previousTime;
+      
+      if (currentMode == Mode::CLOCKSET) previousTime = screenTime.getTotalMillis();
+  
+      Time * timeToEdit = (currentMode == Mode::ALARMSET) ? &alarmTime : &screenTime;
+      
+      if (currentMode == Mode::CLOCKSET && selectedEditPart == Time::SECOND)
+      {
+        timeToEdit->setTimePart(Time::SECOND, 0);
+      }
+      else
+      {
+        timeToEdit->subtractTimePart(selectedEditPart, 1);
+      }
+      
+      if (currentMode == Mode::CLOCKSET)
+      {
+        clockOffset += (timeToEdit->getTotalMillis() - previousTime);
+      }
+      else if (currentMode == Mode::ALARMSET)
+      {
+        snoozeTime = *timeToEdit;
+      }
+      
+      resetBlink(false);
     }
-    else
-    {
-      timeToEdit->subtractTimePart(selectedEditPart, 1);
-    }
-    
-    if (currentMode == Mode::CLOCKSET)
-    {
-      clockOffset += (timeToEdit->getTotalMillis() - previousTime);
-    }
-    else if (currentMode == Mode::ALARMSET)
-    {
-      snoozeTime = *timeToEdit;
-    }
-    
-    resetBlink(false);
+      break;
+    case Mode::MENU:
+      if (menuCursor == 0 || menuCursor == 1)
+      {
+        menuCursor += 2;
+        resetBlink();
+      }
+      break;
   }
-  else if (currentMode == Mode::MENU)
+}
+
+// A function handler that is called whenever there is a long press of the left button
+void leftButtonLongPress()
+{
+  if (currentMode == Mode::CLOCK)
   {
-    if (menuCursor == 0 || menuCursor == 1)
-    {
-      menuCursor += 2;
-      resetBlink();
-    }
+    hintsOn = !hintsOn;
+    resetHints(false);
+    updateOtherScreenChars();
   }
 }
 
 // A function handler that is called whenever there is a short press of the left button
 void leftButtonShortPress()
 {
-  if (currentMode == Mode::CLOCKSET || currentMode == Mode::ALARMSET)
+  switch (currentMode)
   {
-    switch (selectedEditPart)
-    {
-      case Time::MINUTE:
-        selectedEditPart = Time::HOUR;
+    case Mode::CLOCKSET:
+    case Mode::ALARMSET:
+      switch (selectedEditPart)
+      {
+        case Time::MINUTE:
+          selectedEditPart = Time::HOUR;
+          resetBlink();
+          break;
+        case Time::SECOND:
+          selectedEditPart = Time::MINUTE;
+          resetBlink();
+          break;
+      }
+      break;
+   case Mode::MENU:
+      if (menuCursor == 1 || menuCursor == 3)
+      {
+        menuCursor--;
         resetBlink();
-        break;
-      case Time::SECOND:
-        selectedEditPart = Time::MINUTE;
-        resetBlink();
-        break;
-    }
-  }
-  else if (currentMode == Mode::MENU)
-  {
-    if (menuCursor == 1 || menuCursor == 3)
-    {
-      menuCursor--;
-      resetBlink();
-    }
+      }
+      break;
   }
 }
 
 // A function handler that is called whenever there is a short press of the right button
 void rightButtonShortPress()
 {
-  if (currentMode == Mode::CLOCKSET || currentMode == Mode::ALARMSET)
+  switch (currentMode)
   {
-    switch (selectedEditPart)
-    {
-      case Time::HOUR:
-        selectedEditPart = Time::MINUTE;
+    case Mode::CLOCKSET:
+    case Mode::ALARMSET:
+      switch (selectedEditPart)
+      {
+        case Time::HOUR:
+          selectedEditPart = Time::MINUTE;
+          resetBlink();
+          break;
+        case Time::MINUTE:
+          selectedEditPart = Time::SECOND;
+          resetBlink();
+          break;
+      }
+      break;
+    case Mode::MENU:
+      if (menuCursor == 0 || menuCursor == 2)
+      {
+        menuCursor++;
         resetBlink();
-        break;
-      case Time::MINUTE:
-        selectedEditPart = Time::SECOND;
-        resetBlink();
-        break;
-    }
-  }
-  else if (currentMode == Mode::MENU)
-  {
-    if (menuCursor == 0 || menuCursor == 2)
-    {
-      menuCursor++;
-      resetBlink();
-    }
+      }
+      break;
+    case Mode::CLOCK:
+      alarmOn = !alarmOn;
+      if (!alarmOn) snoozeTime = alarmTime;
+      EEPROM.write(4, alarmOn);
+      updateOtherScreenChars();
+      break;
   }
 }
 
@@ -942,7 +1098,7 @@ void setupCustomChars()
   lcd.createChar((int)CustomChars::UPPERBRACKET, upperbracket);
   lcd.createChar((int)CustomChars::SIXSTEM, sixstem);
   lcd.createChar((int)CustomChars::ALARM, alarm);
-  lcd.createChar((int)CustomChars::SELECTSMALL, selectsmall);
+  lcd.createChar((int)CustomChars::DOWNARROW, downarrow);
 }
 
 // Performs initial setup as the program starts
@@ -955,7 +1111,6 @@ void setup()
   backlightColor = defaultBacklightColor;
   lcd.setBacklight(backlightColor);
 
-  currentMode = Mode::CLOCK;
   selectedEditPart = Time::HOUR;
 
   int h = EEPROM.read(0);
@@ -971,6 +1126,7 @@ void setup()
 
   alarmOn = EEPROM.read(4);
   
+  Serial.println("Clock time: " + screenTime.getReadableShort());
   Serial.println("Alarm time: " + alarmTime.getReadableShort());
 
   selectButtonHandler.setOnLongPressHandler(selectButtonLongPress);
@@ -980,8 +1136,7 @@ void setup()
   leftButtonHandler.setOnShortPressHandler(leftButtonShortPress);
   rightButtonHandler.setOnShortPressHandler(rightButtonShortPress);
 
-  updateScreen();
-  updateOtherScreenChars();
+  updateMode(Mode::CLOCK);
 
   currentTime = millis();
   clockResetTime = currentTime;
@@ -998,6 +1153,8 @@ void loop()
   if (currentMode == Mode::CLOCKSET || currentMode == Mode::ALARMSET || currentMode == Mode::MENU) blinkTimer = currentTime - previousBlinkTime;
 
   if (alarmActive) alarmFlashTimer = currentTime - previousAlarmFlashTime;
+
+  if (hintsOn) hintTimer = currentTime - previousHintTime;
 
   if (clockTimer >= 1000)
   {
@@ -1020,17 +1177,18 @@ void loop()
 
     if (alarmOn && screenTime == snoozeTime)
     {
+      if (hintsOn) resetHints(false);
       setAlarm(true);
     }
 
-    if (currentMode != Mode::MENU) updateScreenTime();
+    if (currentMode != Mode::MENU && !(hintsOn && hintsActive)) updateScreenTime();
   }
 
   if ((currentMode == Mode::CLOCKSET || currentMode == Mode::ALARMSET || currentMode == Mode::MENU) && blinkTimer >= blinkTime)
   {
     previousBlinkTime = currentTime;
     
-    if (clockTimer < 1000) updateScreen();
+    if (clockTimer < 1000 && !(hintsOn && hintsActive)) updateScreen();
     
     blinkTimer = 0;
   }
@@ -1051,6 +1209,15 @@ void loop()
     lcd.setBacklight(backlightColor);
   }
 
+  if (hintTimer >= hintTime && hintsOn && hintsActive)
+  {
+    resetHints(hintNumber < hintNumberArray[(int)currentMode]);
+  }
+  else if (hintTimer >= betweenHintsTime && hintsOn && !hintsActive)
+  {
+    resetHints(true);
+  }
+
   buttons = lcd.readButtons();
   
   upButtonHandler.update();
@@ -1058,4 +1225,9 @@ void loop()
   leftButtonHandler.update();
   rightButtonHandler.update();
   selectButtonHandler.update();
+
+  if (buttons)
+  {
+    resetHints(false);
+  }
 }
