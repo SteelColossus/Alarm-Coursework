@@ -1,6 +1,7 @@
 #include <Adafruit_RGBLCDShield.h>
 #include <EEPROM.h>
 
+// Custom type for a function pointer
 typedef void (* func)();
 
 // Class for storing a time in hours, minutes and seconds
@@ -258,7 +259,7 @@ const int defaultBacklightColor = 0x7;
 int backlightColor;
 
 // Whether the screen will display hints
-bool hintsOn = true;
+bool hintsOn;
 // Whether the screen will display hints
 bool hintsActive = false;
 // The number of the hint screen being displayed
@@ -846,6 +847,7 @@ void setAlarm(bool active)
   {
     updateMode(Mode::CLOCK);
     upButtonHandler.setOnLongPressHandler(upButtonLongPressIfAlarmActive);
+    selectButtonHandler.setOnLongPressHandler(NULL);
   }
   else
   {    
@@ -856,6 +858,7 @@ void setAlarm(bool active)
     }
     
     upButtonHandler.setOnLongPressHandler(NULL);
+    selectButtonHandler.setOnLongPressHandler(selectButtonLongPress);
   }
 }
 
@@ -1021,6 +1024,7 @@ void leftButtonLongPress()
     hintsOn = !hintsOn;
     resetHints(false);
     updateOtherScreenChars();
+    EEPROM.write(5, hintsOn);
   }
 }
 
@@ -1125,6 +1129,8 @@ void setup()
   snoozeTime = alarmTime;
 
   alarmOn = EEPROM.read(4);
+
+  hintsOn = EEPROM.read(5);
   
   Serial.println("Clock time: " + screenTime.getReadableShort());
   Serial.println("Alarm time: " + alarmTime.getReadableShort());
