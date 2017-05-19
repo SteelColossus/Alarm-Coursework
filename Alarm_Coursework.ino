@@ -833,8 +833,6 @@ void updateMode(Mode mode)
   leftButtonHandler.setOnLongPressHandler((currentMode == Mode::CLOCK) ? leftButtonLongPress : NULL);
   rightButtonHandler.setOnLongPressHandler((currentMode == Mode::CLOCK) ? dummyFunc : NULL);
 
-  //if (hintsOn) resetHints(false);
-
   if (currentMode != Mode::MENU) updateOtherScreenChars();
 }
 
