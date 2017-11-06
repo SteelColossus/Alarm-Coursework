@@ -193,15 +193,15 @@ enum class CustomChars : uint8_t { BACKSLASH = 0, BLTOTRDIAG = 1, TRTOBLDIAG = 2
 // An array containing the block of 2x2 characters to be displayed for each digit 0-9 in order. Each number is composed of 4 individual characters stored as unsigned integers in ASCII form.
 // Some numbers are given by the custom characters, and represent that that custom character should be printed out at that point (e.g. printing backlash which is custom character 0). Others list the ASCII code as they are not commonly used ASCII characters on most computers.
 uint8_t digits[][4] = { {'/', (uint8_t)CustomChars::BACKSLASH, (uint8_t)CustomChars::BACKSLASH, '/'},
-                                                {'/', '|', ' ', '|'},
-                                                {'/', (uint8_t)CustomChars::TRTOBLDIAG, (uint8_t)CustomChars::BLTOTRDIAG, '_'},
-                                                {(uint8_t)CustomChars::TOPLINE, (uint8_t)CustomChars::TRTOBLDIAG, 164, ')'},
-                                                {'/', '|', (uint8_t)CustomChars::UPPERBRACKET, '+'},
-                                                {(uint8_t)CustomChars::BLTOTRDIAG, (uint8_t)CustomChars::TOPLINE, 164, ')'},
-                                                {(uint8_t)CustomChars::SIXSTEM, (uint8_t)CustomChars::TOPLINE, '(', ')'},
-                                                {(uint8_t)CustomChars::TOPLINE, (uint8_t)CustomChars::TRTOBLDIAG, '/', ' '},
-                                                {'(', ')', '(', ')'},
-                                                {'(', ')', ' ', '|'}};
+                        {'/', '|', ' ', '|'},
+                        {'/', (uint8_t)CustomChars::TRTOBLDIAG, (uint8_t)CustomChars::BLTOTRDIAG, '_'},
+                        {(uint8_t)CustomChars::TOPLINE, (uint8_t)CustomChars::TRTOBLDIAG, 164, ')'},
+                        {'/', '|', (uint8_t)CustomChars::UPPERBRACKET, '+'},
+                        {(uint8_t)CustomChars::BLTOTRDIAG, (uint8_t)CustomChars::TOPLINE, 164, ')'},
+                        {(uint8_t)CustomChars::SIXSTEM, (uint8_t)CustomChars::TOPLINE, '(', ')'},
+                        {(uint8_t)CustomChars::TOPLINE, (uint8_t)CustomChars::TRTOBLDIAG, '/', ' '},
+                        {'(', ')', '(', ')'},
+                        {'(', ')', ' ', '|'}};
 
 // Similar to the above for colon and space, except these characters occupy a 1x2 space.
 uint8_t colon[2] = {165, 165};
@@ -647,41 +647,41 @@ void updateHints()
             switch (hintNumber)
             {
                 case 0:
-                    if (alarmActive)
-                    {
-                        firstLine = " PRESS SELECT:    ";
-                        secondLine = "    Snooze alarm    ";
-                    }
-                    else
-                    {
-                        firstLine = "    HOLD SELECT:    ";
-                        secondLine = "     Go to menu     ";
-                    }
-                    break;
-                case 1:
-                    if (alarmActive)
-                    {
-                        firstLine = "        HOLD UP:        ";
-                        secondLine = " Turn off alarm ";
-                    }
-                    else
-                    {
-                        firstLine = "    PRESS RIGHT:    ";
-                        secondLine = "    Toggle alarm    ";
-                    }
-                    break;
-                case 2:
-                    if (alarmActive)
-                    {
-                        firstLine = "    PRESS RIGHT:    ";
-                        secondLine = "    Toggle alarm    ";
-                    }
-                    else
-                    {
-                        firstLine = "     HOLD LEFT:     ";
-                        secondLine = "    Toggle hints    ";
-                    }
-                    break;
+         -          if (alarmActive)
+         -          {
+         -              firstLine = " PRESS SELECT:  ";
+         -              secondLine = "  Snooze alarm  ";
+         -          }
+         -          else
+         -          {
+     -                  firstLine = "  HOLD SELECT:  ";
+         -              secondLine = "   Go to menu   ";
+         -          }
+         -          break;
+         -      case 1:
+         -          if (alarmActive)
+         -          {
+         -              firstLine = "    HOLD UP:    ";
+         -              secondLine = " Turn off alarm ";
+         -          }
+         -          else
+         -          {
+         -              firstLine = "  PRESS RIGHT:  ";
+         -              secondLine = "  Toggle alarm  ";
+         -          }
+         -          break;
+         -        case 2:
+         -          if (alarmActive)
+         -          {
+         -              firstLine = "  PRESS RIGHT:  ";
+         -              secondLine = "  Toggle alarm  ";
+         -          }
+         -          else
+         -          {
+         -              firstLine = "   HOLD LEFT:   ";
+         -              secondLine = "  Toggle hints  ";
+         -          }
+         -          break;
             }
             break;
         case Mode::CLOCKSET:
@@ -689,16 +689,16 @@ void updateHints()
             switch (hintNumber)
             {
                 case 0:
-                    firstLine = "    " + String((char)127) + "/" + String((char)126) + ": Change     ";
-                    secondLine = "    time segment    ";
+                    firstLine = "  " + String((char)127) + "/" + String((char)126) + ": Change   ";
+ -                  secondLine = "  time segment  ";
                     break;
                 case 1:
                     firstLine = " ^/" + String((char)CustomChars::DOWNARROW) + ": Increase/ ";
-                    secondLine = " decrease time    ";
+ -                  secondLine = " decrease time  ";
                     break;
                 case 2:
-                    firstLine = "    HOLD SELECT:    ";
-                    secondLine = " Return to menu ";
+-                   firstLine = "  HOLD SELECT:  ";
+ -                  secondLine = " Return to menu ";
                     break;
             }
             break;
@@ -706,13 +706,13 @@ void updateHints()
             switch (hintNumber)
             {
                 case 0:
-                    firstLine = "        " + String((char)127) + "/" + String((char)126) + "/^/" + String((char)CustomChars::DOWNARROW) + ":        ";
-                    secondLine = " Navigate menu    ";
-                    break;
-                case 1:
-                    firstLine = " PRESS SELECT:    ";
-                    secondLine = " Select option    ";
-                    break;
+ -                  firstLine = "    " + String((char)127) + "/" + String((char)126) + "/^/" + String((char)CustomChars::DOWNARROW) + ":    ";
+ -                  secondLine = " Navigate menu  ";
+ -                  break;
+ -              case 1:
+ -                  firstLine = " PRESS SELECT:  ";
+ -                  secondLine = " Select option  ";
+ -                  break;
             }
             break;
     }
